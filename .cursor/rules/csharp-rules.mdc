@@ -1,0 +1,32 @@
+---
+description: Engineering Guidelines for C# and .NET Files
+globs: *.cs, *.razor, *.cshtml
+---
+# C# Engineering Guidelines
+
+## Architecture & Structure
+- **Vertical Slice Architecture:**  
+  - *Rule:* Organize each feature in its own folder (Domain, Application, Infrastructure).  
+  - *Why:* This minimizes cross‑feature coupling and makes it easier for both humans and AI to localize changes.
+- **CQRS:**  
+  - *Rule:* Separate command (write) and query (read) operations within each feature.  
+  - *Why:* This simplifies testing and adheres to the single‑responsibility principle.
+- **Dependency Injection:**  
+  - *Rule:* Use ASP.NET Core’s built‑in DI.  
+  - *Why:* Encourages testability and separation of concerns.
+
+## Code Style & Naming
+- **Naming Conventions:**  
+  - *Rule:* Use PascalCase for classes/methods and camelCase for locals/parameters.  
+  - *Why:* Consistency improves readability and maintainability.
+- **Simplicity:**  
+  - *Rule:* Keep methods short, focused, and self‑documenting.  
+  - *Why:* Adheres to SOLID, DRY, and KISS principles.
+
+## Testing & Minimalism
+- **Test-Driven Development:**  
+  - *Rule:* Write failing unit tests first (Red), implement minimal code (Green), then refactor.  
+  - *Why:* Ensures high quality and easier debugging.
+- **Minimal File Creation:**  
+  - *Rule:* Create new files only if they solve a specific need.  
+  - *Why:* Prevents bloat and helps AI focus on relevant code.

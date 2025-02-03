@@ -1,0 +1,21 @@
+---
+description: Engineering Guidelines for CSS
+globs: *.css
+---
+# CSS Engineering Guidelines
+
+## Structure & Naming
+- **BEM Methodology:**  
+  - *Rule:* Name CSS classes using Block__Element--Modifier.  
+  - *Why:* This ensures clarity and predictability in styling.
+- **CSS Modules:**  
+  - *Rule:* Use `.module.css` files for component-specific styles.  
+  - *Why:* Prevents global leakage and simplifies maintenance.
+
+## Best Practices
+- **Minimal & Responsive:**  
+  - *Rule:* Write minimal, non‑overly nested styles and use media queries for responsiveness.  
+  - *Why:* Enhances performance and maintainability.
+- **Reuse & Consistency:**  
+  - *Rule:* Centralize common values (colors, spacing) using variables.  
+  - *Why:* Ensures consistency across components.
