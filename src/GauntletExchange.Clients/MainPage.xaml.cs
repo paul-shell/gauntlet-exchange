@@ -8,7 +8,7 @@
             
             webView.Source = new UrlWebViewSource 
             { 
-                Url = "https://exchange.gauntletai.io/explore" 
+                Url = "https://exchange.gauntletai.io/" 
             };
         }
     }

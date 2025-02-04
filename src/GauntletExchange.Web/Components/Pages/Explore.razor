@@ -1,4 +1,4 @@
-@page "/explore"
+@page "/"
 @using System.Collections.ObjectModel
 @inject IJSRuntime JSRuntime
 @implements IAsyncDisposable
@@ -19,56 +19,41 @@
         left: 0;
         overflow-y: scroll;
         scroll-snap-type: y mandatory;
+        -ms-overflow-style: none;  /* Hide scrollbar for IE and Edge */
+        scrollbar-width: none;     /* Hide scrollbar for Firefox */
+    }
+
+    .tiktok-feed::-webkit-scrollbar {
+        display: none;  /* Hide scrollbar for Chrome, Safari and Opera */
     }
 
     .video-container {
         height: 100vh;
-        width: 100%;
+        width: 100vw;
         position: relative;
         scroll-snap-align: start;
         scroll-snap-stop: always;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: #000;
     }
 
     .video-content {
-        aspect-ratio: 9/16;
         position: relative;
-        width: 100%;
-        height: 100%;
-        background: #000;
-        overflow: hidden;
-    }
-
-    .video-content iframe {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%) scale(1.5);  /* Scale up to cover container */
         width: 100vw;
         height: 100vh;
-        pointer-events: none;
-        border: none;
+        overflow: hidden;
+        cursor: pointer;
     }
 
-    /* Ensure proper sizing on different aspect ratios */
-    @@media (min-aspect-ratio: 9/16) {
-        .video-content iframe {
-            width: 177.78vh;  /* 16/9 * 100 */
-            height: 100vh;
-            transform: translate(-50%, -50%);
-        }
-    }
-
-    @@media (max-aspect-ratio: 9/16) {
-        .video-content iframe {
-            width: 100vw;
-            height: 177.78vw;  /* 16/9 * 100 */
-            transform: translate(-50%, -50%);
-        }
-    }
-
-    /* Hide YouTube branding */
-    .video-content iframe {
-        opacity: 0.8; /* Slightly dim the video to match TikTok style */
+    .video-player {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        top: 0;
+        left: 0;
     }
 
     .interaction-buttons {
@@ -163,6 +148,50 @@
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
     }
+
+    .poster-image {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .play-pause-overlay {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 80px;
+        height: 80px;
+        background: rgba(0, 0, 0, 0.5);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 1;
+        transition: opacity 0.3s ease;
+        z-index: 10;
+        pointer-events: none;
+    }
+
+    /* The JS code adds the "paused" class when a video is paused */
+    .video-content.playing .play-pause-overlay {
+        opacity: 0;
+    }
+
+    .video-content.paused .play-pause-overlay,
+    .video-content:not(.playing):not(.paused) .play-pause-overlay {
+        opacity: 1;
+    }
+
+    .play-pause-overlay::before {
+        content: "⏸️";
+        font-size: 40px;
+        color: white;
+    }
+
+    .video-content.playing .play-pause-overlay::before {
+        content: "▶️";
+    }
 </style>
 
 <div class="tiktok-feed" @ref="feedContainer">
@@ -171,24 +200,21 @@
         @for (var i = 0; i < cards.Count; i++)
         {
             var card = cards[i];
-            var shouldLoad = i < currentPage * 3 + 3; // Only load next 3 videos
             <div class="video-container">
-                <div class="video-content" id="player-@card.VideoId">
-                    @if (shouldLoad)
-                    {
-                        <iframe 
-                            src="@card.VideoUrl"
-                            frameborder="0"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                            allowfullscreen>
-                        </iframe>
-                    }
-                    else
-                    {
-                        <div class="placeholder" style="background-color: #000; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
-                            <div class="loading-spinner"></div>
-                        </div>
-                    }
+                <div class="video-content paused" id="player-@card.VideoId" @onclick="() => TogglePlayPause(card.VideoId)">
+                    <div class="play-pause-overlay"></div>
+                    <video 
+                        class="video-player"
+                        playsinline
+                        muted
+                        loop
+                        preload="auto"
+                        autoplay
+                        poster="@card.PosterUrl"
+                        data-src="@card.VideoUrl"
+                        data-type="video/mp4">
+                        Your browser does not support the video tag.
+                    </video>
                 </div>
                 
                 <div class="interaction-buttons">
@@ -235,9 +261,8 @@
     private DotNetObjectReference<Explore> objRef;
     private Random random = new Random();
     private bool isLoading = false;
-    private int currentPage = 1;
     private bool isJsInitialized = false;
-    private const int ItemsPerPage = 5;
+    private string currentPlayingId = string.Empty;
 
     public class CardItem
     {
@@ -245,17 +270,16 @@
         public string Description { get; set; }
         public string VideoUrl { get; set; }
         public string PosterUrl { get; set; }
-        public string VideoId { get; set; }  // Added to track video IDs
+        public string VideoId { get; set; }
+        public string VideoType { get; set; } = "video/mp4";
     }
 
     private ObservableCollection<CardItem> cards = new();
-    private List<(string VideoId, string Title, string Description, string PosterColor)> sampleContent = new()
+    private List<(string VideoId, string Title, string Description, string PosterColor, string VideoUrl)> sampleContent = new()
     {
-        ("dQw4w9WgXcQ", "Epic Rickroll", "Never gonna give you up! #classic #meme", "FF69B4"),
-        ("9bZkp7q19f0", "Gangnam Style", "Oppa Gangnam Style! #dance #viral", "9400D3"),
-        ("jNQXAC9IVRw", "Me at the zoo", "The very first YouTube video! #history", "4B0082"),
-        ("_OBlgSz8sSM", "Charlie bit my finger", "Ouch Charlie! #funny #classic", "00CED1"),
-        ("EE-xtCF3T94", "Chocolate Rain", "I move away from the mic to breathe #music", "FF4500")
+        ("tiktok1", "TikTok Video", "Original TikTok Content #viral", "FF69B4", "https://sagauntletexchange.blob.core.windows.net/videos/tiktok.mp4"),
+        ("tiktok2", "TikTok Video", "More TikTok Content #viral", "FF69B4", "https://sagauntletexchange.blob.core.windows.net/videos/videoplayback.mp4"),
+        ("rickroll", "Rick Astley", "Never Gonna Give You Up! #classic #meme", "FF69B4", "https://sagauntletexchange.blob.core.windows.net/videos/rick_roll.mp4")
     };
 
     private async Task InitializeJavaScript()
@@ -270,13 +294,12 @@
         catch (Exception ex)
         {
             Console.WriteLine($"Error initializing JavaScript: {ex.Message}");
-            // Retry after a short delay
             await Task.Delay(500);
             await InitializeJavaScript();
         }
     }
 
-    private async Task LoadMoreItems()
+    private async Task LoadItems()
     {
         if (isLoading) return;
         
@@ -285,43 +308,18 @@
 
         try
         {
-            var startIndex = (currentPage - 1) * 3 % sampleContent.Count;
-            var newItems = new List<CardItem>();
-
-            for (int i = 0; i < 3; i++)
+            foreach (var content in sampleContent)
             {
-                var contentIndex = (startIndex + i) % sampleContent.Count;
-                var content = sampleContent[contentIndex];
-                var uniqueId = Guid.NewGuid().ToString();
-                newItems.Add(new CardItem 
+                cards.Add(new CardItem 
                 {
                     Title = content.Title,
                     Description = content.Description,
-                    VideoId = content.VideoId,
-                    VideoUrl = $"https://www.youtube.com/embed/{content.VideoId}?" + 
-                              $"autoplay=1&" +
-                              $"mute=1&" +
-                              $"controls=0&" +
-                              $"loop=1&" +
-                              $"playlist={content.VideoId}&" +
-                              $"playsinline=1&" +
-                              $"enablejsapi=1&" +
-                              $"rel=0&" +
-                              $"modestbranding=1&" +
-                              $"showinfo=0&" +
-                              $"origin={Uri.EscapeDataString($"https://localhost?player={uniqueId}")}&" +
-                              $"widget_referrer={Uri.EscapeDataString($"https://localhost?feed={uniqueId}")}&" +
-                              $"iv_load_policy=3",  // Disable video annotations
-                    PosterUrl = $"https://placehold.co/1080x1920/{content.PosterColor}/FFF?text={Uri.EscapeDataString(content.Title)}"
+                    VideoId = $"{content.VideoId}-{Guid.NewGuid().ToString("N").Substring(0, 8)}",
+                    VideoUrl = content.VideoUrl,
+                    PosterUrl = $"https://placehold.co/1080x1920/{content.PosterColor}/FFF?text={Uri.EscapeDataString(content.Title)}",
+                    VideoType = "video/mp4"
                 });
             }
-
-            foreach (var item in newItems)
-            {
-                cards.Add(item);
-            }
-
-            currentPage++;
 
             if (isJsInitialized)
             {
@@ -330,7 +328,7 @@
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading more items: {ex.Message}");
+            Console.WriteLine($"Error loading items: {ex.Message}");
         }
         finally
         {
@@ -343,7 +341,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadMoreItems();
+        await LoadItems();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -351,6 +349,9 @@
         if (firstRender)
         {
             await InitializeJavaScript();
+            // Give a moment for everything to initialize, then force play the first video
+            await Task.Delay(1500);
+            await JSRuntime.InvokeVoidAsync("playVisibleVideo");
         }
     }
 
@@ -360,6 +361,36 @@
         {
             await JSRuntime.InvokeVoidAsync("disconnectObserver");
             objRef.Dispose();
+        }
+    }
+
+    [JSInvokable]
+    public void UpdateCurrentPlayingId(string videoId)
+    {
+        currentPlayingId = videoId;
+        StateHasChanged();
+    }
+
+    private async Task TogglePlayPause(string videoId)
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("togglePlayPause", videoId);
+        }
+        catch (TaskCanceledException)
+        {
+            // Swallow the exception (it can occur during rapid toggling or disposal).
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnIntersection()
+    {
+        // When we reach the bottom, reset to the beginning
+        if (cards.Count >= sampleContent.Count)
+        {
+            cards.Clear();
+            await LoadItems();
         }
     }
 }
