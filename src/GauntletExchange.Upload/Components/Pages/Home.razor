@@ -1,0 +1,267 @@
+﻿@page "/"
+@using Microsoft.AspNetCore.Components.Web
+@using GauntletExchange.Upload.Services
+@implements IAsyncDisposable
+@inject IBlobStorageService BlobStorageService
+@inject IJSRuntime JSRuntime
+
+<div class="container">
+    <div @ref="_dropZoneElement"
+         class="drop-zone @(_isDragging ? "dragging" : "")"
+         @ondragenter:preventDefault
+         @ondragleave:preventDefault
+         @ondrop:preventDefault
+         @ondrop="OnDropAsync"
+         @onclick="OpenFileDialog">
+        <InputFile OnChange="HandleFileSelected" @onclick:stopPropagation class="file-input" accept=".mp4" MaxFileSize="@MaxFileSize" id="fileInput" multiple="false" />
+        <div class="upload-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+        </div>
+        <p class="upload-text">Drop MP4 file here or <span class="browse-text">browse</span></p>
+        <p class="upload-hint">Maximum file size: 100MB</p>
+    </div>
+
+    @if (_isUploading)
+    {
+        <div class="upload-status">
+            <div class="progress">
+                <div class="progress-bar" style="width: @(_progress)%">
+                    <span class="progress-text">@_progress%</span>
+                </div>
+            </div>
+            <p class="status-text">
+                @_statusMessage
+                @if (_uploadedUrl != null)
+                {
+                    <a href="@_uploadedUrl" target="_blank" class="view-link">click here to view it</a>
+                }
+            </p>
+        </div>
+    }
+</div>
+
+<style>
+    .container {
+        max-width: 600px;
+        margin: 40px auto;
+        padding: 0 20px;
+    }
+
+    .drop-zone {
+        background: #ffffff;
+        border: 2px dashed #e2e8f0;
+        border-radius: 12px;
+        padding: 40px 20px;
+        text-align: center;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    }
+
+    .drop-zone:hover {
+        border-color: #3b82f6;
+        background: #f8fafc;
+    }
+
+    .drop-zone.dragging {
+        background: #f0f9ff;
+        border-color: #3b82f6;
+        transform: scale(1.02);
+    }
+
+    .upload-icon {
+        color: #64748b;
+        margin-bottom: 16px;
+    }
+
+    .drop-zone:hover .upload-icon {
+        color: #3b82f6;
+    }
+
+    .upload-text {
+        color: #1e293b;
+        font-size: 1.125rem;
+        margin: 0 0 8px 0;
+    }
+
+    .upload-hint {
+        color: #64748b;
+        font-size: 0.875rem;
+        margin: 0;
+    }
+
+    .browse-text {
+        color: #3b82f6;
+        text-decoration: underline;
+        cursor: pointer;
+    }
+
+    .file-input {
+        display: none;
+    }
+
+    .upload-status {
+        margin-top: 24px;
+    }
+
+    .progress {
+        background: #f1f5f9;
+        border-radius: 9999px;
+        height: 12px;
+        overflow: hidden;
+        margin-bottom: 12px;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .progress-bar {
+        background: linear-gradient(90deg, #3b82f6, #2563eb);
+        height: 100%;
+        border-radius: 9999px;
+        transition: width 0.3s ease;
+        position: relative;
+    }
+
+    .progress-text {
+        position: absolute;
+        right: 8px;
+        color: white;
+        font-size: 0.75rem;
+        line-height: 12px;
+    }
+
+    .status-text {
+        color: #475569;
+        font-size: 0.875rem;
+        margin: 0;
+    }
+
+    .view-link {
+        color: #3b82f6;
+        text-decoration: none;
+        margin-left: 4px;
+    }
+
+    .view-link:hover {
+        text-decoration: underline;
+    }
+</style>
+
+@code {
+    private ElementReference _dropZoneElement;
+    private bool _isDragging;
+    private IBrowserFile? _selectedFile;
+    private const long MaxFileSize = 100 * 1024 * 1024; // 100MB in bytes
+    private bool _isUploading;
+    private int _progress;
+    private string _statusMessage = "";
+    private string? _uploadedUrl;
+    private DotNetObjectReference<Home>? _selfReference;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _selfReference = DotNetObjectReference.Create(this);
+            await JSRuntime.InvokeVoidAsync("console.log", "Component rendered, initializing drop zone");
+            await JSRuntime.InvokeVoidAsync("initializeFileDropZone", _dropZoneElement);
+
+            // Set up event listeners for drag and drop
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                const dropZone = document.querySelector('.drop-zone');
+                dropZone.addEventListener('blazordragenter', () => {
+                    dropZone.classList.add('dragging');
+                });
+                dropZone.addEventListener('blazordragleave', () => {
+                    dropZone.classList.remove('dragging');
+                });
+            ");
+        }
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        _selfReference?.Dispose();
+    }
+
+    private void HandleDragEnter()
+    {
+        _isDragging = true;
+        StateHasChanged();
+        JSRuntime.InvokeVoidAsync("console.log", "C# HandleDragEnter called");
+    }
+
+    private void HandleDragLeave()
+    {
+        _isDragging = false;
+        StateHasChanged();
+        JSRuntime.InvokeVoidAsync("console.log", "C# HandleDragLeave called");
+    }
+
+    private async void HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        await JSRuntime.InvokeVoidAsync("console.log", "C# HandleFileSelected called", e.File.Name);
+        _selectedFile = e.File;
+        _statusMessage = $"Starting upload of {e.File.Name}...";
+        _isUploading = true;
+        _progress = 0;
+        _uploadedUrl = null;
+        StateHasChanged();
+        await UploadFile();
+    }
+
+    private async Task UploadFile()
+    {
+        if (_selectedFile == null) return;
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("console.log", "Starting file upload");
+            _statusMessage = $"Uploading {_selectedFile.Name}...";
+            _uploadedUrl = null;
+            StateHasChanged();
+
+            var progress = new Progress<long>(bytesUploaded =>
+            {
+                var percentage = (int)((bytesUploaded * 100) / _selectedFile.Size);
+                if (percentage != _progress)
+                {
+                    _progress = percentage;
+                    _statusMessage = $"Uploading {_selectedFile.Name}: {_progress}%";
+                    StateHasChanged();
+                }
+            });
+
+            await using var stream = _selectedFile.OpenReadStream(MaxFileSize);
+            var result = await BlobStorageService.UploadVideoAsync(stream, progress);
+            _uploadedUrl = result.BlobUrl;
+            
+            _statusMessage = $"Successfully uploaded {_selectedFile.Name}! ";
+            await JSRuntime.InvokeVoidAsync("console.log", "File upload complete");
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Error uploading {_selectedFile.Name}: {ex.Message}";
+            _uploadedUrl = null;
+            await JSRuntime.InvokeVoidAsync("console.error", "Upload error:", ex.Message);
+        }
+        finally
+        {
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnDropAsync()
+    {
+        await JSRuntime.InvokeVoidAsync("console.log", "C# OnDropAsync called");
+        StateHasChanged();
+    }
+
+    private async Task OpenFileDialog()
+    {
+        await JSRuntime.InvokeVoidAsync("openFileInput", "fileInput");
+    }
+}
