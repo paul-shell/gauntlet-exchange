@@ -1,6 +1,183 @@
 @page "/"
 @using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web.Virtualization
+@using System.Collections.ObjectModel
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <PageTitle>Stream - Gauntlet Exchange</PageTitle>
 
-<StreamVideo Source="https://gauntletai.blob.core.windows.net/videos/test/master.m3u8" />
+<style>
+    .stream-feed {
+        height: 100svh;
+        width: 100%;
+        background: #000;
+        position: fixed;
+        top: 0;
+        left: 0;
+        overflow-y: scroll;
+        scroll-snap-type: y mandatory;
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+
+    .stream-feed::-webkit-scrollbar {
+        display: none;
+    }
+
+    .stream-container {
+        height: 100svh;
+        width: 100%;
+        position: relative;
+        scroll-snap-align: start;
+        scroll-snap-stop: always;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: #000;
+        overflow: hidden;
+    }
+
+    .loading-container {
+        height: 100svh;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        scroll-snap-align: start;
+        background: #000;
+    }
+
+    .loading-spinner {
+        width: 50px;
+        height: 50px;
+        border: 5px solid #333;
+        border-top: 5px solid #fff;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @@keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+</style>
+
+<div class="stream-feed" @ref="feedContainer">
+    <Virtualize Items="@streams" Context="stream">
+        <div class="stream-container">
+            <StreamVideo Source="@stream.VideoUrl" />
+        </div>
+    </Virtualize>
+
+    @if (isLoading)
+    {
+        <div class="loading-container">
+            <div class="loading-spinner"></div>
+        </div>
+    }
+</div>
+
+@code {
+    private ElementReference feedContainer;
+    private DotNetObjectReference<Stream>? objRef;
+    private IJSObjectReference? module;
+    private bool isLoading;
+    private int currentPage;
+    private const int PAGE_SIZE = 10;
+
+    public record StreamItem(string VideoUrl);
+
+    private ObservableCollection<StreamItem> streams = new();
+
+    private async Task<List<StreamItem>> GetNextPageAsync()
+    {
+        // Simulate API delay
+        await Task.Delay(500);
+
+        var items = new List<StreamItem>();
+        for (int i = 0; i < PAGE_SIZE; i++)
+        {
+            items.Add(new StreamItem(
+                "https://gauntletai.blob.core.windows.net/videos/test/master.m3u8"
+            ));
+        }
+        return items;
+    }
+
+    private async Task LoadMoreItems()
+    {
+        if (isLoading) return;
+        
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var items = await GetNextPageAsync();
+            foreach (var item in items)
+            {
+                streams.Add(item);
+            }
+            currentPage++;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading items: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMoreItems();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                module = await JS.InvokeAsync<IJSObjectReference>("import", "/js/stream.js");
+                objRef = DotNetObjectReference.Create(this);
+                await module.InvokeVoidAsync("onLoad", feedContainer, objRef);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error initializing intersection observer: {ex.Message}");
+            }
+        }
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        try
+        {
+            if (module is not null)
+            {
+                await module.InvokeVoidAsync("onDispose");
+                await module.DisposeAsync();
+            }
+            objRef?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error disposing stream component: {ex.Message}");
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnIntersection()
+    {
+        if (!isLoading)
+        {
+            await LoadMoreItems();
+        }
+    }
+}

@@ -1,13 +1,9 @@
 @page "/explore"
 @using System.Collections.ObjectModel
-@inject IJSRuntime JSRuntime
+@inject IJSRuntime JS
 @implements IAsyncDisposable
 
 <PageTitle>Explore - Gauntlet Exchange</PageTitle>
-
-<HeadContent>
-    <script src="js/explore.js"></script>
-</HeadContent>
 
 <style>
     .tiktok-feed {
@@ -19,12 +15,12 @@
         left: 0;
         overflow-y: scroll;
         scroll-snap-type: y mandatory;
-        -ms-overflow-style: none;  /* Hide scrollbar for IE and Edge */
-        scrollbar-width: none;     /* Hide scrollbar for Firefox */
+        -ms-overflow-style: none;
+        scrollbar-width: none;
     }
 
     .tiktok-feed::-webkit-scrollbar {
-        display: none;  /* Hide scrollbar for Chrome, Safari and Opera */
+        display: none;
     }
 
     .video-container {
@@ -37,92 +33,6 @@
         justify-content: center;
         align-items: center;
         background: #000;
-    }
-
-    .video-content {
-        position: relative;
-        width: 100vw;
-        height: 100vh;
-        overflow: hidden;
-        cursor: pointer;
-    }
-
-    .video-player {
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        top: 0;
-        left: 0;
-    }
-
-    .interaction-buttons {
-        position: absolute;
-        right: 12px;
-        bottom: 150px;
-        display: flex;
-        flex-direction: column;
-        gap: 20px;
-        z-index: 100;
-    }
-
-    .interaction-button {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        color: white;
-        gap: 5px;
-    }
-
-    .button-icon {
-        width: 45px;
-        height: 45px;
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        font-size: 24px;
-    }
-
-    .button-count {
-        font-size: 12px;
-        font-weight: 600;
-    }
-
-    .video-info {
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        padding: 20px;
-        background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
-        color: white;
-    }
-
-    .video-info h3 {
-        margin: 0;
-        font-size: 16px;
-        font-weight: 600;
-    }
-
-    .video-info p {
-        margin: 8px 0 0 0;
-        font-size: 14px;
-        opacity: 0.9;
-    }
-
-    .music-info {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-top: 12px;
-        font-size: 14px;
-    }
-
-    .music-icon {
-        font-size: 16px;
     }
 
     .loading-container {
@@ -148,50 +58,6 @@
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
     }
-
-    .poster-image {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-    }
-
-    .play-pause-overlay {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        width: 80px;
-        height: 80px;
-        background: rgba(0, 0, 0, 0.5);
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        opacity: 1;
-        transition: opacity 0.3s ease;
-        z-index: 10;
-        pointer-events: none;
-    }
-
-    /* The JS code adds the "paused" class when a video is paused */
-    .video-content.playing .play-pause-overlay {
-        opacity: 0;
-    }
-
-    .video-content.paused .play-pause-overlay,
-    .video-content:not(.playing):not(.paused) .play-pause-overlay {
-        opacity: 1;
-    }
-
-    .play-pause-overlay::before {
-        content: "⏸️";
-        font-size: 40px;
-        color: white;
-    }
-
-    .video-content.playing .play-pause-overlay::before {
-        content: "▶️";
-    }
 </style>
 
 <div class="tiktok-feed" @ref="feedContainer">
@@ -216,34 +82,7 @@
                         Your browser does not support the video tag.
                     </video>
                 </div>
-                
-                <div class="interaction-buttons">
-                    <div class="interaction-button">
-                        <div class="button-icon">❤️</div>
-                        <span class="button-count">@GetRandomCount()K</span>
-                    </div>
-                    <div class="interaction-button">
-                        <div class="button-icon">💬</div>
-                        <span class="button-count">@GetRandomCount()</span>
-                    </div>
-                    <div class="interaction-button">
-                        <div class="button-icon">⤴️</div>
-                        <span class="button-count">@GetRandomCount()</span>
-                    </div>
-                    <div class="interaction-button">
-                        <div class="button-icon">⭐</div>
-                        <span class="button-count">Add</span>
-                    </div>
-                </div>
-
-                <div class="video-info">
-                    <h3>@card.Title</h3>
-                    <p>@card.Description</p>
-                    <div class="music-info">
-                        <span class="music-icon">🎵</span>
-                        <span>Original Sound - Gauntlet Exchange</span>
-                    </div>
-                </div>
+                <!-- Additional UI (interaction buttons, video info, etc.) can go here -->
             </div>
         }
     }
@@ -258,73 +97,45 @@
 
 @code {
     private ElementReference feedContainer;
-    private DotNetObjectReference<Explore> objRef;
-    private Random random = new Random();
-    private bool isLoading = false;
-    private bool isJsInitialized = false;
-    private string currentPlayingId = string.Empty;
+    private DotNetObjectReference<Explore>? objRef;
+    private IJSObjectReference? module;
+    private bool isLoading;
+    private int currentPage;
+    private const int PAGE_SIZE = 10;
 
-    public class CardItem
-    {
-        public string Title { get; set; }
-        public string Description { get; set; }
-        public string VideoUrl { get; set; }
-        public string PosterUrl { get; set; }
-        public string VideoId { get; set; }
-        public string VideoType { get; set; } = "video/mp4";
-    }
-
+    public record CardItem(string VideoId, string VideoUrl, string PosterUrl);
     private ObservableCollection<CardItem> cards = new();
-    private List<(string VideoId, string Title, string Description, string PosterColor, string VideoUrl)> sampleContent = new()
-    {
-        ("tiktok1", "TikTok Video", "Original TikTok Content #viral", "FF69B4", "https://sagauntletexchange.blob.core.windows.net/videos/tiktok.mp4"),
-        ("tiktok2", "TikTok Video", "More TikTok Content #viral", "FF69B4", "https://sagauntletexchange.blob.core.windows.net/videos/videoplayback.mp4"),
-        ("rickroll", "Rick Astley", "Never Gonna Give You Up! #classic #meme", "FF69B4", "https://sagauntletexchange.blob.core.windows.net/videos/rick_roll.mp4")
-    };
 
-    private async Task InitializeJavaScript()
+    private async Task<List<CardItem>> GetNextPageAsync()
     {
-        try
+        // Simulate API delay.
+        await Task.Delay(500);
+        var items = new List<CardItem>();
+        for (int i = 0; i < PAGE_SIZE; i++)
         {
-            objRef = DotNetObjectReference.Create(this);
-            await JSRuntime.InvokeVoidAsync("observeIntersection", feedContainer, objRef);
-            await JSRuntime.InvokeVoidAsync("initializeVideoHandling");
-            isJsInitialized = true;
+            var videoId = $"stream-{Guid.NewGuid().ToString("N").Substring(0, 8)}";
+            items.Add(new CardItem(
+                videoId,
+                "https://gauntletai.blob.core.windows.net/videos/test/master.m3u8",
+                $"https://placehold.co/1080x1920/FF69B4/FFF?text={Uri.EscapeDataString(videoId)}"
+            ));
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error initializing JavaScript: {ex.Message}");
-            await Task.Delay(500);
-            await InitializeJavaScript();
-        }
+        return items;
     }
 
-    private async Task LoadItems()
+    private async Task LoadMoreItems()
     {
         if (isLoading) return;
-        
         isLoading = true;
         StateHasChanged();
-
         try
         {
-            foreach (var content in sampleContent)
+            var items = await GetNextPageAsync();
+            foreach (var item in items)
             {
-                cards.Add(new CardItem 
-                {
-                    Title = content.Title,
-                    Description = content.Description,
-                    VideoId = $"{content.VideoId}-{Guid.NewGuid().ToString("N").Substring(0, 8)}",
-                    VideoUrl = content.VideoUrl,
-                    PosterUrl = $"https://placehold.co/1080x1920/{content.PosterColor}/FFF?text={Uri.EscapeDataString(content.Title)}",
-                    VideoType = "video/mp4"
-                });
+                cards.Add(item);
             }
-
-            if (isJsInitialized)
-            {
-                await JSRuntime.InvokeVoidAsync("refreshVideoElements");
-            }
+            currentPage++;
         }
         catch (Exception ex)
         {
@@ -337,60 +148,67 @@
         }
     }
 
-    private string GetRandomCount() => random.Next(1, 999).ToString();
-
     protected override async Task OnInitializedAsync()
     {
-        await LoadItems();
+        await LoadMoreItems();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            await InitializeJavaScript();
-            // Give a moment for everything to initialize, then force play the first video
-            await Task.Delay(1500);
-            await JSRuntime.InvokeVoidAsync("playVisibleVideo");
+            try
+            {
+                module = await JS.InvokeAsync<IJSObjectReference>("import", "/js/explore.js");
+                objRef = DotNetObjectReference.Create(this);
+                await module.InvokeVoidAsync("onLoad", objRef);
+                Console.WriteLine("Explore.js module loaded successfully.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error initializing video handling: {ex.Message}");
+            }
         }
     }
 
     async ValueTask IAsyncDisposable.DisposeAsync()
     {
-        if (objRef != null)
-        {
-            await JSRuntime.InvokeVoidAsync("disconnectObserver");
-            objRef.Dispose();
-        }
-    }
-
-    [JSInvokable]
-    public void UpdateCurrentPlayingId(string videoId)
-    {
-        currentPlayingId = videoId;
-        StateHasChanged();
-    }
-
-    private async Task TogglePlayPause(string videoId)
-    {
         try
         {
-            await JSRuntime.InvokeVoidAsync("togglePlayPause", videoId);
+            if (module is not null)
+            {
+                await module.InvokeVoidAsync("onDispose");
+                await module.DisposeAsync();
+            }
+            objRef?.Dispose();
         }
-        catch (TaskCanceledException)
+        catch (Exception ex)
         {
-            // Swallow the exception (it can occur during rapid toggling or disposal).
+            Console.WriteLine($"Error disposing explore component: {ex.Message}");
         }
     }
 
     [JSInvokable]
     public async Task OnIntersection()
     {
-        // When we reach the bottom, reset to the beginning
-        if (cards.Count >= sampleContent.Count)
+        if (!isLoading)
         {
-            cards.Clear();
-            await LoadItems();
+            await LoadMoreItems();
+        }
+    }
+
+    private async Task TogglePlayPause(string videoId)
+    {
+        try
+        {
+            if (module is not null)
+            {
+                await module.InvokeVoidAsync("togglePlayPause", videoId);
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // Swallow exception during rapid toggling or disposal.
         }
     }
 }
