@@ -257,7 +257,6 @@
     private string _statusMessage = "";
     private string? _uploadedUrl;
     private DotNetObjectReference<Home>? _selfReference;
-    private readonly string _demoPlayerId = $"demo-player-{Guid.NewGuid():N}";
     private string _demoHtml = @"<!DOCTYPE html>
 <html>
 <head>
@@ -279,7 +278,6 @@
             height: 100vh;
             overflow: hidden;
             position: relative;
-            background: #000;
         }
 
         .video-container .video-js {
@@ -370,21 +368,11 @@
                     dropZone.classList.remove('dragging');
                 });
             ");
-
-            // Initialize the demo player if we have a URL
-            if (!string.IsNullOrEmpty(_uploadedUrl))
-            {
-                await JSRuntime.InvokeVoidAsync("initializePlayer", _demoPlayerId);
-            }
         }
     }
 
     async ValueTask IAsyncDisposable.DisposeAsync()
     {
-        if (!string.IsNullOrEmpty(_uploadedUrl))
-        {
-            await JSRuntime.InvokeVoidAsync("disposePlayer", _demoPlayerId);
-        }
         _selfReference?.Dispose();
     }
 
@@ -442,9 +430,6 @@
             
             _statusMessage = $"Successfully uploaded {_selectedFile.Name}! ";
             await JSRuntime.InvokeVoidAsync("console.log", "File upload complete");
-
-            // Initialize the video player with the new URL
-            await JSRuntime.InvokeVoidAsync("initializePlayer", _demoPlayerId);
         }
         catch (Exception ex)
         {
