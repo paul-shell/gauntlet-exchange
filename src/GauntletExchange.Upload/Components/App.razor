@@ -1,0 +1,46 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["GauntletExchange.Upload.styles.css"]" />
+    <link href="https://cdn.jsdelivr.net/npm/video.js@8.21.0/dist/video-js.min.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/video.js@8.21.0/dist/video.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/videojs-hls-quality-selector@2.0.0/dist/videojs-hls-quality-selector.min.js"></script>
+    <ImportMap />
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
+
+<body>
+    <Routes @rendermode="InteractiveServer" />
+    <script src="_framework/blazor.web.js"></script>
+    <script src="js/FileDropZone.js"></script>
+    <script>
+        window.initializePlayer = function(elementId) {
+            function tryInit() {
+                if (typeof videojs !== "undefined") {
+                    var player = videojs(elementId, {
+                        controlBar: {
+                            fullscreenToggle: false,
+                            pictureInPictureToggle: false
+                        },
+                        preload: 'auto',
+                        loadingSpinner: false
+                    });
+                    player.hlsQualitySelector({ displayCurrentQuality: true });
+                    player.one('loadedmetadata', function() {
+                        player.currentTime(0.1);
+                    });
+                } else {
+                    setTimeout(tryInit, 50);
+                }
+            }
+            tryInit();
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link href="https://cdn.jsdelivr.net/npm/video.js@8.21.0/dist/video-js.min.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/video.js@8.21.0/dist/video.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/videojs-hls-quality-selector@2.0.0/dist/videojs-hls-quality-selector.min.js"></script>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .video-container {
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .video-container .video-js {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        .video-container .vjs-tech {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 100%;
+            object-fit: cover;
+            object-position: center;
+        }
+
+        .video-container .vjs-control-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            z-index: 2;
+            background: rgba(0,0,0,0.7);
+        }
+
+        .video-js .vjs-menu {
+            right: 0 !important;
+            left: auto !important;
+            overflow: visible !important;
+        }
+
+        .video-js .vjs-big-play-button {
+            z-index: 2;
+        }
+    </style>
+</head>
+<body>
+    <div class="video-container">
+        <video-js id="demo-player" class="video-js" controls preload="auto">
+            <source src="https://cdn.gauntletai.io/videos/0194d870-3f0f-78c5-8053-31eaf9846634/master.m3u8" type="application/x-mpegURL" />
+        </video-js>
+    </div>
+    <script>
+        function initializePlayer(elementId) {
+            function tryInit() {
+                if (typeof videojs !== "undefined") {
+                    var player = videojs(elementId, {
+                        controlBar: {
+                            fullscreenToggle: false,
+                            pictureInPictureToggle: false
+                        },
+                        preload: 'auto',
+                        loadingSpinner: false
+                    });
+                    player.hlsQualitySelector({ displayCurrentQuality: true });
+                    player.one('loadedmetadata', function() {
+                        player.currentTime(0.1);
+                    });
+                } else {
+                    setTimeout(tryInit, 50);
+                }
+            }
+            tryInit();
+        }
+
+        initializePlayer('demo-player');
+    </script>
+</body>
+</html>

@@ -1,0 +1,456 @@
+﻿@page "/"
+@using Microsoft.AspNetCore.Components.Web
+@using GauntletExchange.Upload.Services
+@implements IAsyncDisposable
+@inject IBlobStorageService BlobStorageService
+@inject IJSRuntime JSRuntime
+
+<div class="container">
+    <h1>Video Upload</h1>
+    
+    <div class="upload-section">
+        <div @ref="_dropZoneElement"
+             class="drop-zone @(_isDragging ? "dragging" : "")"
+             @ondragenter:preventDefault
+             @ondragleave:preventDefault
+             @ondrop:preventDefault
+             @ondrop="OnDropAsync"
+             @onclick="OpenFileDialog">
+            <InputFile OnChange="HandleFileSelected" @onclick:stopPropagation class="file-input" accept=".mp4" MaxFileSize="@MaxFileSize" id="fileInput" multiple="false" />
+            <div class="upload-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+            </div>
+            <p class="upload-text">Drop MP4 file here or <span class="browse-text">browse</span></p>
+            <p class="upload-hint">Maximum file size: 100MB</p>
+        </div>
+
+        @if (_isUploading)
+        {
+            <div class="upload-status">
+                <div class="progress">
+                    <div class="progress-bar" style="width: @(_progress)%">
+                        <span class="progress-text">@_progress%</span>
+                    </div>
+                </div>
+                <p class="status-text">
+                    @_statusMessage
+                    @if (_uploadedUrl != null)
+                    {
+                        <a href="@_uploadedUrl" target="_blank" class="view-link">click here to view it</a>
+                    }
+                </p>
+            </div>
+        }
+    </div>
+
+    <div class="docs-section">
+        <h3>API Usage</h3>
+        <p>Upload videos programmatically:</p>
+        <pre><code class="language-bash">curl -X POST -F "file=@@video.mp4" https://upload.gauntletai.io/videos</code></pre>
+        <p>Response:</p>
+        <pre><code class="language-json">{
+    "url": "https://cdn.gauntletai.io/videos/{{guid}}/master.m3u8",
+    "id": "{{guid}}"
+}</code></pre>
+
+        <p class="processing-note">Note: Videos can take a long time (15+ minutes) to fully process. You can check if processing is complete by verifying the thumbnail exists at:<br/>
+        <code>https://cdn.gauntletai.io/videos/{{guid}}/thumbnail.jpg</code></p>
+
+        <h3>Complete Example</h3>
+        <p>Here's how it looks:</p>
+        <div class="demo-player">
+            <iframe src="https://gauntletai.blob.core.windows.net/videos/0194d870-3f0f-78c5-8053-31eaf9846634/demo.html" frameborder="0" allowfullscreen></iframe>
+        </div>
+
+        <p>And here's the complete code to embed a video:</p>
+        <pre><code class="language-html">@_demoHtml</code></pre>
+    </div>
+</div>
+
+<style>
+    .container {
+        max-width: 800px;
+        margin: 40px auto;
+        padding: 0 20px;
+    }
+
+    h1 {
+        color: #1e293b;
+        margin-bottom: 2rem;
+    }
+
+    .upload-section {
+        margin-bottom: 3rem;
+    }
+
+    .drop-zone {
+        background: #ffffff;
+        border: 2px dashed #e2e8f0;
+        border-radius: 12px;
+        padding: 40px 20px;
+        text-align: center;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    }
+
+    .drop-zone:hover {
+        border-color: #3b82f6;
+        background: #f8fafc;
+    }
+
+    .drop-zone.dragging {
+        background: #f0f9ff;
+        border-color: #3b82f6;
+        transform: scale(1.02);
+    }
+
+    .upload-icon {
+        color: #64748b;
+        margin-bottom: 16px;
+    }
+
+    .drop-zone:hover .upload-icon {
+        color: #3b82f6;
+    }
+
+    .upload-text {
+        color: #1e293b;
+        font-size: 1.125rem;
+        margin: 0 0 8px 0;
+    }
+
+    .upload-hint {
+        color: #64748b;
+        font-size: 0.875rem;
+        margin: 0;
+    }
+
+    .browse-text {
+        color: #3b82f6;
+        text-decoration: underline;
+        cursor: pointer;
+    }
+
+    .file-input {
+        display: none;
+    }
+
+    .upload-status {
+        margin-top: 24px;
+    }
+
+    .progress {
+        background: #f1f5f9;
+        border-radius: 9999px;
+        height: 12px;
+        overflow: hidden;
+        margin-bottom: 12px;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .progress-bar {
+        background: linear-gradient(90deg, #3b82f6, #2563eb);
+        height: 100%;
+        border-radius: 9999px;
+        transition: width 0.3s ease;
+        position: relative;
+    }
+
+    .progress-text {
+        position: absolute;
+        right: 8px;
+        color: white;
+        font-size: 0.75rem;
+        line-height: 12px;
+    }
+
+    .status-text {
+        color: #475569;
+        font-size: 0.875rem;
+        margin: 0;
+    }
+
+    .view-link {
+        color: #3b82f6;
+        text-decoration: none;
+        margin-left: 4px;
+    }
+
+    .view-link:hover {
+        text-decoration: underline;
+    }
+
+    .processing-note {
+        margin: 1.5rem 0;
+        padding: 1rem;
+        background: #f0f9ff;
+        border-left: 4px solid #3b82f6;
+        border-radius: 4px;
+        color: #1e293b;
+    }
+
+    .processing-note code {
+        display: block;
+        margin-top: 0.5rem;
+        padding: 0.5rem;
+        background: #f8fafc;
+        border-radius: 4px;
+    }
+
+    .docs-section {
+        margin-top: 3rem;
+        padding-top: 2rem;
+        border-top: 1px solid #e2e8f0;
+    }
+
+    .docs-section h2 {
+        color: #1e293b;
+        margin-bottom: 1.5rem;
+    }
+
+    .docs-section h3 {
+        color: #475569;
+        margin: 2rem 0 1rem;
+    }
+
+    pre {
+        background: #f8fafc;
+        padding: 1rem;
+        border-radius: 8px;
+        overflow-x: auto;
+        margin: 1rem 0;
+    }
+
+    code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 0.875rem;
+        color: #334155;
+    }
+
+    .demo-player {
+        margin-top: 1rem;
+        background: #000;
+        border-radius: 8px;
+        overflow: hidden;
+        aspect-ratio: 16/9;
+    }
+
+    .demo-player iframe {
+        width: 100%;
+        height: 100%;
+        border: 0;
+    }
+</style>
+
+@code {
+    private ElementReference _dropZoneElement;
+    private bool _isDragging;
+    private IBrowserFile? _selectedFile;
+    private const long MaxFileSize = 100 * 1024 * 1024; // 100MB in bytes
+    private bool _isUploading;
+    private int _progress;
+    private string _statusMessage = "";
+    private string? _uploadedUrl;
+    private DotNetObjectReference<Home>? _selfReference;
+    private string _demoHtml = @"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset=""utf-8"" />
+    <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"" />
+    <link href=""https://cdn.jsdelivr.net/npm/video.js@8.21.0/dist/video-js.min.css"" rel=""stylesheet"" />
+    <script src=""https://cdn.jsdelivr.net/npm/video.js@8.21.0/dist/video.min.js""></script>
+    <script src=""https://cdn.jsdelivr.net/npm/videojs-hls-quality-selector@2.0.0/dist/videojs-hls-quality-selector.min.js""></script>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .video-container {
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .video-container .video-js {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        .video-container .vjs-tech {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 100%;
+            object-fit: cover;
+            object-position: center;
+        }
+
+        .video-container .vjs-control-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            z-index: 2;
+            background: rgba(0,0,0,0.7);
+        }
+
+        .video-js .vjs-menu {
+            right: 0 !important;
+            left: auto !important;
+            overflow: visible !important;
+        }
+
+        .video-js .vjs-big-play-button {
+            z-index: 2;
+        }
+    </style>
+</head>
+<body>
+    <div class=""video-container"">
+        <video-js id=""demo-player"" class=""video-js"" controls preload=""auto"">
+            <source src=""https://cdn.gauntletai.io/videos/0194d870-3f0f-78c5-8053-31eaf9846634/master.m3u8"" type=""application/x-mpegURL"" />
+        </video-js>
+    </div>
+    <script>
+        function initializePlayer(elementId) {
+            function tryInit() {
+                if (typeof videojs !== ""undefined"") {
+                    var player = videojs(elementId, {
+                        controlBar: {
+                            fullscreenToggle: false,
+                            pictureInPictureToggle: false
+                        },
+                        preload: 'auto',
+                        loadingSpinner: false
+                    });
+                    player.hlsQualitySelector({ displayCurrentQuality: true });
+                    player.one('loadedmetadata', function() {
+                        player.currentTime(0.1);
+                    });
+                } else {
+                    setTimeout(tryInit, 50);
+                }
+            }
+            tryInit();
+        }
+
+        initializePlayer('demo-player');
+    </script>
+</body>
+</html>";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _selfReference = DotNetObjectReference.Create(this);
+            await JSRuntime.InvokeVoidAsync("console.log", "Component rendered, initializing drop zone");
+            await JSRuntime.InvokeVoidAsync("initializeFileDropZone", _dropZoneElement);
+
+            // Set up event listeners for drag and drop
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                const dropZone = document.querySelector('.drop-zone');
+                dropZone.addEventListener('blazordragenter', () => {
+                    dropZone.classList.add('dragging');
+                });
+                dropZone.addEventListener('blazordragleave', () => {
+                    dropZone.classList.remove('dragging');
+                });
+            ");
+        }
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        _selfReference?.Dispose();
+    }
+
+    private void HandleDragEnter()
+    {
+        _isDragging = true;
+        StateHasChanged();
+        JSRuntime.InvokeVoidAsync("console.log", "C# HandleDragEnter called");
+    }
+
+    private void HandleDragLeave()
+    {
+        _isDragging = false;
+        StateHasChanged();
+        JSRuntime.InvokeVoidAsync("console.log", "C# HandleDragLeave called");
+    }
+
+    private async void HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        await JSRuntime.InvokeVoidAsync("console.log", "C# HandleFileSelected called", e.File.Name);
+        _selectedFile = e.File;
+        _statusMessage = $"Starting upload of {e.File.Name}...";
+        _isUploading = true;
+        _progress = 0;
+        _uploadedUrl = null;
+        StateHasChanged();
+        await UploadFile();
+    }
+
+    private async Task UploadFile()
+    {
+        if (_selectedFile == null) return;
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("console.log", "Starting file upload");
+            _statusMessage = $"Uploading {_selectedFile.Name}...";
+            _uploadedUrl = null;
+            StateHasChanged();
+
+            var progress = new Progress<long>(bytesUploaded =>
+            {
+                var percentage = (int)((bytesUploaded * 100) / _selectedFile.Size);
+                if (percentage != _progress)
+                {
+                    _progress = percentage;
+                    _statusMessage = $"Uploading {_selectedFile.Name}: {_progress}%";
+                    StateHasChanged();
+                }
+            });
+
+            await using var stream = _selectedFile.OpenReadStream(MaxFileSize);
+            var result = await BlobStorageService.UploadVideoAsync(stream, progress);
+            _uploadedUrl = result.BlobUrl;
+            
+            _statusMessage = $"Successfully uploaded {_selectedFile.Name}! ";
+            await JSRuntime.InvokeVoidAsync("console.log", "File upload complete");
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Error uploading {_selectedFile.Name}: {ex.Message}";
+            _uploadedUrl = null;
+            await JSRuntime.InvokeVoidAsync("console.error", "Upload error:", ex.Message);
+        }
+        finally
+        {
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnDropAsync()
+    {
+        await JSRuntime.InvokeVoidAsync("console.log", "C# OnDropAsync called");
+        StateHasChanged();
+    }
+
+    private async Task OpenFileDialog()
+    {
+        await JSRuntime.InvokeVoidAsync("openFileInput", "fileInput");
+    }
+}

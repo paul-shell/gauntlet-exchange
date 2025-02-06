@@ -13,6 +13,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GauntletExchange.Web.UnitTe
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GauntletExchange.Web", "src\GauntletExchange.Web\GauntletExchange.Web.csproj", "{D9A0F96C-520F-457C-8790-DA57A54D93BA}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GauntletExchange.Upload", "src\GauntletExchange.Upload\GauntletExchange.Upload.csproj", "{1548F655-5EF6-465A-A7D8-7B8260654629}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GauntletExchange.VideoProcessor", "src\GauntletExchange.VideoProcessor\GauntletExchange.VideoProcessor.csproj", "{7396D668-9212-4AF0-B874-3F8DB74348C2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -32,6 +36,14 @@ Global
 		{D9A0F96C-520F-457C-8790-DA57A54D93BA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D9A0F96C-520F-457C-8790-DA57A54D93BA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D9A0F96C-520F-457C-8790-DA57A54D93BA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1548F655-5EF6-465A-A7D8-7B8260654629}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1548F655-5EF6-465A-A7D8-7B8260654629}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1548F655-5EF6-465A-A7D8-7B8260654629}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1548F655-5EF6-465A-A7D8-7B8260654629}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7396D668-9212-4AF0-B874-3F8DB74348C2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7396D668-9212-4AF0-B874-3F8DB74348C2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7396D668-9212-4AF0-B874-3F8DB74348C2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7396D668-9212-4AF0-B874-3F8DB74348C2}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -40,6 +52,8 @@ Global
 		{AEB4F8AF-A1B1-40EE-A479-4E3C8AC125A8} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{F949C811-BA40-45C2-9289-9FE3178FC307} = {2982A410-EF3C-476F-99E2-98AFE61074C0}
 		{D9A0F96C-520F-457C-8790-DA57A54D93BA} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{1548F655-5EF6-465A-A7D8-7B8260654629} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{7396D668-9212-4AF0-B874-3F8DB74348C2} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {A6E90202-264B-4A8E-80AF-2666ED2C8660}
