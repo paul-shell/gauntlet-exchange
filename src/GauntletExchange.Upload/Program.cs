@@ -1,5 +1,6 @@
 using GauntletExchange.Upload.Components;
 using GauntletExchange.Upload.Services;
+using GauntletExchange.Upload.Endpoints;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -26,5 +27,8 @@ app.UseAntiforgery();
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+// Map the upload endpoint
+app.MapUploadEndpoints();
 
 app.Run();

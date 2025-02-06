@@ -1,13 +1,17 @@
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Azure.Core;
+using Azure.Storage.Queues;
+using System.Text.Json;
 
 namespace GauntletExchange.Upload.Services;
 
 public class BlobStorageService : IBlobStorageService
 {
     private readonly BlobServiceClient _blobServiceClient;
+    private readonly QueueClient _queueClient;
     private const string ContainerName = "videos";
+    private const string QueueName = "videoprocessing";
     private const string OriginalFileName = "original.mp4";
 
     public BlobStorageService(IConfiguration configuration)
@@ -16,12 +20,14 @@ public class BlobStorageService : IBlobStorageService
             ?? throw new ArgumentNullException("BlobStorage:ConnectionString not configured");
         
         _blobServiceClient = new BlobServiceClient(connectionString);
+        _queueClient = new QueueClient(connectionString, QueueName);
     }
 
     public async Task<(string BlobUrl, string BlobPath)> UploadVideoAsync(Stream content, IProgress<long> progress)
     {
         var containerClient = _blobServiceClient.GetBlobContainerClient(ContainerName);
         await containerClient.CreateIfNotExistsAsync(publicAccessType: PublicAccessType.Blob);
+        await _queueClient.CreateIfNotExistsAsync();
 
         // Create a sequential, time-based GUID using .NET 9's new feature
         var folderName = Guid.CreateVersion7().ToString();
@@ -45,6 +51,13 @@ public class BlobStorageService : IBlobStorageService
         };
 
         await blobClient.UploadAsync(content, options);
-        return (blobClient.Uri.ToString(), blobPath);
+
+        // Queue the video ID for processing
+        var message = new { VideoId = folderName };
+        await _queueClient.SendMessageAsync(JsonSerializer.Serialize(message));
+
+        // Return CDN URL instead of direct blob storage URL
+        var cdnUrl = $"https://cdn.gauntletai.io/videos/{folderName}/{OriginalFileName}";
+        return (cdnUrl, blobPath);
     }
 } 
