@@ -1,0 +1,49 @@
+---
+description: Engineering Guidelines for C# and .NET Files
+globs: *.cs, *.razor, *.cshtml
+---
+# C# Coding & Architecture Rules
+
+## 1. Naming & Layout
+- **Classes, Methods, Properties**: PascalCase
+- **Local Variables, Parameters**: camelCase
+- **File Names**: Match the primary class (e.g., `CreateLeadCommand.cs`)
+
+## 2. SOLID & Clean Code
+- Single Responsibility Principle: each class/feature does one thing well.
+- Avoid “God classes” or large controllers with too many responsibilities.
+
+## 3. Vertical Slice / CQRS
+- Group commands/queries in the same folder as related domain entities.
+- Each folder = one “feature” or “domain concept.”
+- **No** giant `/Features` top-level folder. Instead, each feature is top-level inside the service.
+  - Example:
+    ```
+    /src/Prospector.Api/
+      /Leads/
+        /CreateLead/
+          CreateLeadCommand.cs
+          CreateLeadCommandHandler.cs
+          CreateLeadValidator.cs
+        /GetLead/
+          ...
+    ```
+- Use a mediator library only if beneficial. Otherwise, keep commands/queries direct.
+
+## 4. Testing
+- Only **unit tests** for now. Use xUnit (or MSTest/NUnit) and Moq if needed.
+- Place tests in a mirror folder under `/tests`.
+
+## 5. Minimal Dependencies
+- Don’t add new NuGet packages unless absolutely necessary.
+- If you need a major library, *ask for permission and justify why*.
+
+## 6. Security & Validation
+- Follow OWASP top 10. Validate inputs with FluentValidation or .NET built-ins.
+
+## 7. Logging & Observability
+- Use minimal logging in catch blocks or critical flows. For bigger apps, use built-in .NET logging with structured logs.
+
+## 8. Style & Comments
+- Keep methods small and self-documenting.
+- Summaries (`///`) on classes/methods that are crucial or exposed publicly.
