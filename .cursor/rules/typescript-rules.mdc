@@ -1,0 +1,41 @@
+---
+description: Engineering Guidelines for TypeScript
+globs: *.ts, *.tsx
+---
+# TypeScript & React Rules
+
+## 1. File & Folder Structure
+- **Group by feature**: Each feature folder has its components, hooks, tests, and CSS.
+- Re-export from an `index.ts` if helpful, but avoid deeply nested barrels.
+
+## 2. Naming
+- **Components**: `PascalCase` (e.g., `LeadsPage.tsx`).
+- **Functions, Variables**: `camelCase`.
+- **Interfaces/Types**: `PascalCase`.
+
+## 3. State Management
+- Use **Redux Toolkit** for shared or complex state.
+- For purely local state, prefer React Hooks.
+
+## 4. Testing
+- Use **Vitest + React Testing Library** for unit tests only.
+- Keep coverage 80% or higher for critical features.
+
+## 5. Minimal Dependencies
+- Avoid adding libraries unless absolutely needed.
+- Always ask permission with reasons.
+
+## 6. Lint & Formatting
+- Use ESLint + Prettier with a consistent config.
+- No warnings or errors on commit.
+
+## 7. BEM for CSS Modules
+- Import your `.module.css` files and follow the BEM rules.
+
+## 8. API Integration
+- Generate TypeScript types from your backend OpenAPI spec.
+- Keep your “api” or “services” code in a distinct folder (e.g., `shared/api`).
+
+## 9. Comments & Documentation
+- Self-document with clear variable/function names.
+- JSDoc or TSDoc for complex functions or classes if needed.

@@ -1,0 +1,33 @@
+---
+description: Engineering Guidelines for CSS
+globs: *.css
+---
+# CSS & Styling Rules
+
+## 1. BEM Naming
+- **Block**: The top-level component or feature name (e.g., `login-page`).
+- **Element**: `__element` (e.g., `.login-page__header`)
+- **Modifier**: `--modifier` (e.g., `.login-page__header--highlighted`)
+
+## 2. File Organization
+- Use local `.module.css` or `.scss` files for each component.
+- Name the file to match the component: `LoginPage.module.css`.
+
+## 3. Consistency
+- Keep properties in a logical order (Layout, Box, Typography, Visual).
+- Example order:
+  1. `display`, `position`, `top/right/bottom/left`
+  2. `margin`, `padding`
+  3. `width`, `height`
+  4. `font-*`
+  5. `color`, `background`, `border`
+  6. `overflow`, etc.
+
+## 4. No Third-Party CSS
+- Avoid frameworks like Tailwind or Bootstrap unless explicitly approved.
+
+## 5. Responsiveness & Breakpoints
+- Keep breakpoints minimal: e.g., `@media (min-width: 768px)`, `@media (min-width: 1024px)`.
+
+## 6. Comments
+- Short, purposeful comments for tricky styling (e.g., hacks or overrides).

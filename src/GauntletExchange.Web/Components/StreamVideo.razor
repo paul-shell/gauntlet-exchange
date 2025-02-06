@@ -1,0 +1,88 @@
+@inject IJSRuntime JSRuntime
+
+<div class="video-container">
+    <video-js id="@_playerId" class="video-js" controls preload="auto" poster="@GetThumbnailUrl()">
+        <source src="@Source" type="application/x-mpegURL" />
+    </video-js>
+</div>
+
+<style>
+    .video-container {
+        width: 100%;
+        height: 100%;
+        min-height: 100svh;
+        overflow: hidden;
+        position: relative;
+        background: #000;
+    }
+
+    /* Ensure the Video.js player fills the container */
+    .video-container .video-js {
+        width: 100%;
+        height: 100%;
+        position: relative;
+    }
+
+    /* Position the actual video playback element so it covers and centers */
+    .video-container .vjs-tech {
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+        width: 100%;
+        object-fit: cover;
+        object-position: center;
+        z-index: 0;
+    }
+
+    /* Ensure the control bar is positioned over the video and fully visible */
+    .video-container .vjs-control-bar {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        z-index: 1;
+        background: linear-gradient(to top, rgba(0,0,0,0.7), transparent);
+    }
+
+    /* Fix for the quality picker overlay (and other menus) so it isn't cropped */
+    .video-js .vjs-menu {
+        right: 0 !important;
+        left: auto !important;
+        overflow: visible !important;
+    }
+</style>
+
+@code {
+    private readonly string _playerId = $"player-{Guid.NewGuid():N}";
+
+    [Parameter]
+    public string Source { get; set; } = "";
+
+    private string GetThumbnailUrl() => Source.Replace("master.m3u8", "thumbnail.jpg");
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Task.Delay(200);
+            try
+            {
+                await JSRuntime.InvokeAsync<object>("initializePlayer", _playerId);
+            }
+            catch (Exception ex)
+            {
+                await JSRuntime.InvokeVoidAsync("console.error", "Error initializing video player:", ex.Message);
+            }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("disposePlayer", _playerId);
+        }
+        catch { }
+    }
+} 
