@@ -1,5 +1,102 @@
 @page "/"
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <PageTitle>Stream - Gauntlet Exchange</PageTitle>
 
-<StreamVideo Source="https://cdn.gauntletai.io/videos/0194d870-3f0f-78c5-8053-31eaf9846634/master.m3u8" />
+<div class="stream-feed" @ref="feedContainer">
+    @foreach (var stream in streams)
+    {
+        <div class="stream-container">
+            <StreamVideo Source="@stream.VideoUrl" />
+        </div>
+    }
+    <div class="scroll-sentinel"></div>
+</div>
+
+<style>
+    .stream-feed {
+        height: 100svh;
+        width: 100%;
+        background: #000;
+        position: fixed;
+        top: 0;
+        left: 0;
+        overflow-y: scroll;
+        scroll-snap-type: y mandatory;
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+
+    .stream-feed::-webkit-scrollbar {
+        display: none;
+    }
+
+    .stream-container {
+        height: 100svh;
+        width: 100%;
+        position: relative;
+        scroll-snap-align: start;
+        scroll-snap-stop: always;
+        background: #000;
+        overflow: hidden;
+    }
+
+    .scroll-sentinel {
+        height: 1px;
+        width: 100%;
+        position: relative;
+        bottom: 100px;
+    }
+</style>
+
+@code {
+    private ElementReference feedContainer;
+    private IJSObjectReference? module;
+    private DotNetObjectReference<Stream>? selfReference;
+    private readonly List<StreamItem> streams = new();
+
+    public record StreamItem(string VideoUrl);
+
+    protected override void OnInitialized()
+    {
+        // Add initial items
+        AddMoreItems();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            selfReference = DotNetObjectReference.Create(this);
+            module = await JS.InvokeAsync<IJSObjectReference>("import", "/js/stream.js");
+            await module.InvokeVoidAsync("initObserver", feedContainer, selfReference);
+        }
+    }
+
+    [JSInvokable]
+    public void OnScroll()
+    {
+        AddMoreItems();
+        StateHasChanged();
+    }
+
+    private void AddMoreItems()
+    {
+        // Add 3 items at a time
+        for (int i = 0; i < 3; i++)
+        {
+            streams.Add(new StreamItem("https://cdn.gauntletai.io/videos/0194d870-3f0f-78c5-8053-31eaf9846634/master.m3u8"));
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (module is not null)
+        {
+            await module.InvokeVoidAsync("onDispose");
+            await module.DisposeAsync();
+        }
+        selfReference?.Dispose();
+    }
+}
