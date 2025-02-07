@@ -3,20 +3,12 @@ let scrollObserver = null;
 let dotNetHelper = null;
 let isLoading = false;
 let isAnyVideoPlaying = false;
-let pendingPlays = new Set();
 let _videoObservers = new Map();
 
 function setupPlayerEvents(player) {
     player.ready(() => {
-        // Check if this video should start playing when it's ready
-        const container = player.el().closest('.video-container');
-        if (container) {
-            const rect = container.getBoundingClientRect();
-            const isVisible = rect.top < window.innerHeight && rect.bottom > 0;
-            if (isVisible && isAnyVideoPlaying) {
-                player.play().catch(() => {});
-            }
-        }
+        // Only check visibility on ready, don't auto-play
+        console.log('Player ready:', player.id());
     });
 
     player.on('play', () => {
@@ -30,9 +22,48 @@ function setupPlayerEvents(player) {
     });
     
     player.on('pause', () => {
-        isAnyVideoPlaying = Object.values(window._videoJsPlayers).some(p => 
-            p && !p.paused()
-        );
+        // Small delay to let other players update first
+        setTimeout(() => {
+            isAnyVideoPlaying = Object.values(window._videoJsPlayers).some(p => 
+                p && !p.paused()
+            );
+        }, 50);
+    });
+}
+
+function cleanupFarVideos(currentPlayerId) {
+    const currentPlayer = window._videoJsPlayers[currentPlayerId];
+    if (!currentPlayer) return;
+
+    const currentContainer = currentPlayer.el().closest('.video-container');
+    if (!currentContainer) return;
+
+    const currentRect = currentContainer.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const keepAliveDistance = viewportHeight * 2; // Keep 2 screens worth
+
+    Object.entries(window._videoJsPlayers).forEach(([id, player]) => {
+        if (id === currentPlayerId) return;
+
+        const container = player.el()?.closest('.video-container');
+        if (!container) return;
+
+        const rect = container.getBoundingClientRect();
+        const distance = Math.abs(rect.top - currentRect.top);
+
+        if (distance > keepAliveDistance) {
+            console.log(`Cleaning up player ${id}`);
+            try {
+                const wasPlaying = !player.paused();
+                player.pause();
+                player.reset(); // Reset instead of dispose
+                if (wasPlaying) {
+                    isAnyVideoPlaying = true; // Maintain play state
+                }
+            } catch (e) {
+                console.error('Error cleaning up player:', e);
+            }
+        }
     });
 }
 
@@ -96,14 +127,30 @@ export function observeVideoVisibility(element, dotNetRef) {
     const observer = new IntersectionObserver(
         entries => {
             const [entry] = entries;
-            const playerId = element.querySelector('video-js').id;
+            const videoElement = element.querySelector('video-js');
+            const playerId = videoElement?.id;
+            if (!playerId) return;
             
             if (entry.isIntersecting) {
-                if (isAnyVideoPlaying) {
-                    const player = window._videoJsPlayers[playerId];
-                    if (player) {
+                let player = window._videoJsPlayers[playerId];
+                
+                if (!player && videoElement) {
+                    window.initializePlayer(playerId, {
+                        preload: "metadata",
+                        loadingSpinner: false,
+                        controls: true,
+                        controlBar: {
+                            fullscreenToggle: false,
+                            pictureInPictureToggle: false
+                        }
+                    });
+                    player = window._videoJsPlayers[playerId];
+                }
+
+                if (player && isAnyVideoPlaying) {
+                    setTimeout(() => {
                         player.play().catch(() => {});
-                    }
+                    }, 100); // Small delay to let player initialize
                 }
             } else {
                 const player = window._videoJsPlayers[playerId];
@@ -124,27 +171,6 @@ export function observeVideoVisibility(element, dotNetRef) {
     };
 }
 
-window.playVideoIfActive = function(playerId) {
-    const player = window._videoJsPlayers[playerId];
-    if (!player) {
-        // Player not ready yet, mark it for playing when ready
-        pendingPlays.add(playerId);
-        return;
-    }
-    
-    if (player && isAnyVideoPlaying) {
-        player.play().catch(() => {});
-    }
-};
-
-window.pauseVideo = function(playerId) {
-    const player = window._videoJsPlayers[playerId];
-    if (player) {
-        pendingPlays.delete(playerId);
-        player.pause();
-    }
-};
-
 window.toggleVideo = function(playerId) {
     const player = window._videoJsPlayers[playerId];
     if (player) {
@@ -162,16 +188,35 @@ window.initializePlayer = function(elementId, options) {
         return;
     }
 
-    // Clean up existing player if any
-    if (window._videoJsPlayers?.[elementId]) {
-        window._videoJsPlayers[elementId].dispose();
+    const element = document.getElementById(elementId);
+    if (!element) {
+        console.log('Video element not found:', elementId);
+        return;
     }
 
-    const player = videojs(elementId, options);
-    player.hlsQualitySelector({ displayCurrentQuality: true });
-    
-    window._videoJsPlayers = window._videoJsPlayers || {};
-    window._videoJsPlayers[elementId] = player;
-    
-    setupPlayerEvents(player);
+    // If player exists, just reset it
+    if (window._videoJsPlayers?.[elementId]) {
+        try {
+            window._videoJsPlayers[elementId].reset();
+            return;
+        } catch (e) {
+            console.error('Error resetting player:', e);
+        }
+    }
+
+    try {
+        const player = videojs(element, options);
+        player.hlsQualitySelector({ displayCurrentQuality: true });
+        
+        window._videoJsPlayers = window._videoJsPlayers || {};
+        window._videoJsPlayers[elementId] = player;
+        
+        setupPlayerEvents(player);
+    } catch (e) {
+        console.error('Error initializing player:', e);
+    }
+};
+
+window.hasPlayer = function(playerId) {
+    return !!window._videoJsPlayers[playerId];
 }; 

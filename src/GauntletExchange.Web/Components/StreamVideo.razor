@@ -1,9 +1,12 @@
 @inject IJSRuntime JSRuntime
 
 <div class="video-container" @ref="_container" @ontouchstart="OnTouchStart" @ontouchend="OnTouchEnd">
-    <video-js id="@_playerId" class="video-js" controls preload="metadata">
-        <source src="@Source" type="application/x-mpegURL" />
-    </video-js>
+    @if (!_isDisposed)
+    {
+        <video-js @ref="_videoElement" id="@_playerId" class="video-js" controls preload="metadata">
+            <source src="@Source" type="application/x-mpegURL" />
+        </video-js>
+    }
 </div>
 
 <style>
@@ -63,10 +66,12 @@
 @code {
     private readonly string _playerId = $"player-{Guid.NewGuid():N}";
     private ElementReference _container;
+    private ElementReference _videoElement;
     private IJSObjectReference? _module;
     private DotNetObjectReference<StreamVideo>? _selfReference;
     private DateTime _touchStartTime;
     private double _touchStartY;
+    private bool _isDisposed = false;
 
     [Parameter]
     public string Source { get; set; } = "";
@@ -99,6 +104,42 @@
         }
     }
 
+    [JSInvokable]
+    public void OnPlayerDisposed()
+    {
+        _isDisposed = true;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnPlayerNeeded()
+    {
+        _isDisposed = false;
+        StateHasChanged();
+    }
+
+    private async Task InitializePlayer()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("initializePlayer", _playerId, new
+            {
+                preload = "metadata",
+                loadingSpinner = false,
+                controls = true,
+                controlBar = new
+                {
+                    fullscreenToggle = false,
+                    pictureInPictureToggle = false
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("console.error", "Error initializing video player:", ex.Message);
+        }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
@@ -107,25 +148,19 @@
             {
                 _selfReference = DotNetObjectReference.Create(this);
                 _module = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "/js/stream.js");
-                
-                await JSRuntime.InvokeVoidAsync("initializePlayer", _playerId, new
-                {
-                    preload = "metadata",
-                    loadingSpinner = false,
-                    controls = true,
-                    controlBar = new
-                    {
-                        fullscreenToggle = false,
-                        pictureInPictureToggle = false
-                    }
-                });
-
                 await _module.InvokeVoidAsync("observeVideoVisibility", _container, _selfReference);
             }
             catch (Exception ex)
             {
-                await JSRuntime.InvokeVoidAsync("console.error", "Error initializing video player:", ex.Message);
+                await JSRuntime.InvokeVoidAsync("console.error", "Error in first render:", ex.Message);
             }
+        }
+
+        if (!_isDisposed)
+        {
+            // Wait a bit to ensure the element is in the DOM
+            await Task.Delay(50);
+            await InitializePlayer();
         }
     }
 
