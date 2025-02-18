@@ -1,0 +1,89 @@
+@page "/upload"
+@using Microsoft.AspNetCore.Components.Forms
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>Upload Video - Gauntlet Exchange</PageTitle>
+
+<div class="container mt-4">
+    <h1>Upload Video</h1>
+    
+    <AuthorizeView>
+        <Authorized>
+            <InputFile OnChange="@HandleFileSelected" class="form-control mb-3" accept=".mp4" />
+            
+            @if (isUploading)
+            {
+                <div class="progress mb-3">
+                    <div class="progress-bar" role="progressbar" style="width: @($"{uploadProgress}%")" 
+                         aria-valuenow="@uploadProgress" aria-valuemin="0" aria-valuemax="100">
+                        @uploadProgress%
+                    </div>
+                </div>
+            }
+            
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="alert alert-danger">@errorMessage</div>
+            }
+        </Authorized>
+        <NotAuthorized>
+            <div class="alert alert-warning">
+                Please <a href="/authentication/login">login</a> to upload videos.
+            </div>
+        </NotAuthorized>
+    </AuthorizeView>
+</div>
+
+@code {
+    private bool isUploading;
+    private int uploadProgress;
+    private string? errorMessage;
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            isUploading = true;
+            errorMessage = null;
+            var file = e.File;
+
+            // Create form data
+            var content = new MultipartFormDataContent();
+            var fileContent = new StreamContent(file.OpenReadStream(100 * 1024 * 1024)); // 100MB limit
+            content.Add(fileContent, "file", file.Name);
+
+            // Upload to the Upload service
+            var response = await Http.PostAsync("https://upload.gauntletai.io/videos", content);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<UploadResult>();
+                if (result != null)
+                {
+                    // Redirect to the video page
+                    Navigation.NavigateTo($"/watch/{result.Id}");
+                }
+            }
+            else
+            {
+                errorMessage = await response.Content.ReadAsStringAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "Upload failed: " + ex.Message;
+        }
+        finally
+        {
+            isUploading = false;
+        }
+    }
+
+    private class UploadResult
+    {
+        public string Url { get; set; } = "";
+        public string Id { get; set; } = "";
+    }
+}

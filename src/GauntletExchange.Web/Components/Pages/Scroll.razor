@@ -1,0 +1,213 @@
+@page "/scroll"
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+<PageTitle>Gauntlet Exchange</PageTitle>
+
+<HeadContent>
+    <link href="https://cdn.jsdelivr.net/npm/video.js@8.21.0/dist/video-js.min.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/video.js@8.21.0/dist/video.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/videojs-contrib-quality-levels@4.0.0/dist/videojs-contrib-quality-levels.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/videojs-hls-quality-selector@2.0.0/dist/videojs-hls-quality-selector.min.js"></script>
+</HeadContent>
+
+<CascadingAuthenticationState>
+    <div class="app-container">
+        <video-js @ref="videoElement" class="video-js" controls preload="auto">
+            <source src="@videoUrl" type="application/vnd.apple.mpegurl" />
+        </video-js>
+        
+        <div class="video-overlay">
+            <div class="right-menu">
+                <AuthorizeView>
+                    <Authorized>
+                        <button class="menu-item" @onclick="HandleLike">
+                            <i class="bi bi-heart-fill"></i>
+                            <span>123K</span>
+                        </button>
+                        <button class="menu-item" @onclick="HandleComment">
+                            <i class="bi bi-chat-fill"></i>
+                            <span>456</span>
+                        </button>
+                        <button class="menu-item" @onclick="HandleShare">
+                            <i class="bi bi-share-fill"></i>
+                            <span>Share</span>
+                        </button>
+                        <button class="menu-item" @onclick='() => Navigation.NavigateTo("/profile", true)'>
+                            <i class="bi bi-person-circle"></i>
+                            <span>Your<br>Profile</span>
+                        </button>
+                    </Authorized>
+                    <NotAuthorized>
+                        <button class="menu-item" @onclick='() => Navigation.NavigateTo("/authentication/login", true)'>
+                            <i class="bi bi-box-arrow-in-right"></i>
+                            <span>Login</span>
+                        </button>
+                    </NotAuthorized>
+                </AuthorizeView>
+            </div>
+            
+            <div class="bottom-menu">
+                <div class="user-info">
+                    <p>@description</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</CascadingAuthenticationState>
+
+<style>
+    .app-container {
+        position: fixed;
+        inset: 0;
+        background: #000;
+    }
+
+    .video-js {
+        width: 100% !important;
+        height: 100% !important;
+        position: absolute !important;
+    }
+
+    .vjs-tech {
+        object-fit: cover;
+        width: 100% !important;
+        height: 100% !important;
+    }
+
+    .vjs-poster {
+        display: none !important;
+    }
+
+    .video-js .vjs-menu {
+        right: 0 !important;
+        left: auto !important;
+        overflow: visible !important;
+    }
+
+    .vjs-big-play-button {
+        z-index: 2;
+    }
+
+    .video-overlay {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        pointer-events: none;
+    }
+
+    .right-menu {
+        position: fixed;
+        right: 16px;
+        top: 50%;
+        transform: translateY(-50%);
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        pointer-events: auto;
+        z-index: 1000;
+        background: rgba(0, 0, 0, 0.5);
+        padding: 16px;
+        border-radius: 8px;
+    }
+
+    .menu-item {
+        background: transparent;
+        border: none;
+        color: white;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        cursor: pointer;
+        padding: 0;
+        transition: transform 0.2s;
+    }
+
+    .menu-item:hover {
+        transform: scale(1.1);
+    }
+
+    .menu-item i {
+        font-size: 28px;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    }
+
+    .menu-item span {
+        font-size: 12px;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    }
+
+    .bottom-menu {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        padding: 16px;
+        background: linear-gradient(transparent, rgba(0,0,0,0.7));
+        pointer-events: auto;
+    }
+
+    .user-info {
+        color: white;
+    }
+
+    .user-info h4 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    }
+
+    .user-info p {
+        margin: 4px 0 0 0;
+        font-size: 14px;
+        opacity: 0.9;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    }
+</style>
+
+@code {
+    private ElementReference videoElement;
+    private const string videoUrl = "https://cdn.gauntletai.io/videos/0194d870-3f0f-78c5-8053-31eaf9846634/master.m3u8";
+    private string description = "Check out this awesome video! #gauntlet #gaming";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Task.Delay(100); // Give scripts time to load
+            var player = await JS.InvokeAsync<IJSObjectReference>("eval", @"
+                const element = document.querySelector('.video-js');
+                const player = videojs(element, {
+                    controls: true,
+                    preload: 'auto',
+                    loadingSpinner: false,
+                    controlBar: {
+                        fullscreenToggle: false,
+                        pictureInPictureToggle: false
+                    }
+                });
+                player.hlsQualitySelector({ displayCurrentQuality: true });
+                player;
+            ");
+        }
+    }
+
+    private void HandleLike()
+    {
+        // Implement like functionality
+    }
+
+    private void HandleComment()
+    {
+        // Implement comment functionality
+    }
+
+    private void HandleShare()
+    {
+        // Implement share functionality
+    }
+}
