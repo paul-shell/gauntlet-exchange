@@ -1,0 +1,307 @@
+@page "/profile"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Authorization
+@inject NavigationManager Navigation
+@attribute [Authorize]
+
+<PageTitle>Profile - Gauntlet Exchange</PageTitle>
+
+<CascadingAuthenticationState>
+    <AuthorizeView>
+        <Authorized>
+            <div class="profile-container">
+                <div class="profile-header">
+                    <div class="profile-info">
+                        <i class="bi bi-person-circle profile-avatar"></i>
+                        <div class="profile-details">
+                            <h2>@context.User.Identity?.Name</h2>
+                            <div class="profile-stats">
+                                <div class="stat">
+                                    <span class="number">@myVideos.Count</span>
+                                    <span class="label">Videos</span>
+                                </div>
+                                <div class="stat">
+                                    <span class="number">1.2K</span>
+                                    <span class="label">Followers</span>
+                                </div>
+                                <div class="stat">
+                                    <span class="number">234</span>
+                                    <span class="label">Following</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="upload-button" @onclick='() => Navigation.NavigateTo("/upload", true)'>
+                        <i class="bi bi-upload"></i>
+                        Upload Video
+                    </button>
+                </div>
+
+                <div class="content-tabs">
+                    <button class="tab-button @(activeTab == "videos" ? "active" : "")" @onclick='() => activeTab = "videos"'>
+                        <i class="bi bi-grid-3x3"></i>
+                        Videos
+                    </button>
+                    <button class="tab-button @(activeTab == "liked" ? "active" : "")" @onclick='() => activeTab = "liked"'>
+                        <i class="bi bi-heart-fill"></i>
+                        Liked
+                    </button>
+                </div>
+
+                <div class="video-grid">
+                    @if (activeTab == "videos")
+                    {
+                        @foreach (var videoId in myVideos)
+                        {
+                            <div class="video-card">
+                                <div class="thumbnail" style="background-image: url(@GetThumbnailUrl(videoId))">
+                                    <div class="overlay-buttons">
+                                        <button class="overlay-button analyze" @onclick='() => Navigation.NavigateTo($"/analyze/{videoId}", true)'>
+                                            <i class="bi bi-waveform"></i>
+                                            Analyze
+                                        </button>
+                                        <button class="overlay-button watch" @onclick='() => Navigation.NavigateTo($"/video/{videoId}", true)'>
+                                            <i class="bi bi-play-fill"></i>
+                                            Watch
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        @foreach (var videoId in likedVideos)
+                        {
+                            <div class="video-card">
+                                <div class="thumbnail" style="background-image: url(@GetThumbnailUrl(videoId))">
+                                    <div class="overlay-buttons">
+                                        <button class="overlay-button watch" @onclick='() => Navigation.NavigateTo($"/video/{videoId}", true)'>
+                                            <i class="bi bi-play-fill"></i>
+                                            Watch
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </Authorized>
+        <NotAuthorized>
+            <div class="profile-container">
+                <p>Please log in to view your profile.</p>
+            </div>
+        </NotAuthorized>
+    </AuthorizeView>
+</CascadingAuthenticationState>
+
+<style>
+    .profile-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 24px;
+    }
+
+    .profile-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 32px;
+    }
+
+    .profile-info {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+    }
+
+    .profile-avatar {
+        font-size: 96px;
+        color: #666;
+    }
+
+    .profile-details h2 {
+        margin: 0 0 16px 0;
+        font-size: 24px;
+    }
+
+    .profile-stats {
+        display: flex;
+        gap: 32px;
+    }
+
+    .stat {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .stat .number {
+        font-size: 18px;
+        font-weight: 600;
+    }
+
+    .stat .label {
+        font-size: 14px;
+        color: #666;
+    }
+
+    .upload-button {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 24px;
+        background: #007bff;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 16px;
+        transition: background-color 0.2s;
+    }
+
+    .upload-button:hover {
+        background: #0056b3;
+    }
+
+    .content-tabs {
+        display: flex;
+        gap: 32px;
+        border-bottom: 1px solid #ddd;
+        margin-bottom: 24px;
+    }
+
+    .tab-button {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 0;
+        background: transparent;
+        border: none;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        font-size: 16px;
+        color: #666;
+    }
+
+    .tab-button.active {
+        color: #007bff;
+        border-bottom-color: #007bff;
+    }
+
+    .video-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 24px;
+    }
+
+    .video-card {
+        cursor: pointer;
+        transition: transform 0.2s;
+    }
+
+    .video-card:hover {
+        transform: scale(1.02);
+    }
+
+    .thumbnail {
+        position: relative;
+        width: 100%;
+        padding-top: 56.25%;
+        background-size: cover;
+        background-position: center;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .views {
+        position: absolute;
+        bottom: 8px;
+        right: 8px;
+        background: rgba(0, 0, 0, 0.7);
+        color: white;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .video-title {
+        margin: 8px 0 0 0;
+        font-size: 14px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .overlay-buttons {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        gap: 8px;
+        background: rgba(0, 0, 0, 0.7);
+        opacity: 0;
+        transition: opacity 0.2s;
+    }
+
+    .thumbnail:hover .overlay-buttons {
+        opacity: 1;
+    }
+
+    .overlay-button {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: transform 0.2s;
+    }
+
+    .overlay-button:hover {
+        transform: scale(1.05);
+    }
+
+    .overlay-button.analyze {
+        background: #007bff;
+        color: white;
+    }
+
+    .overlay-button.watch {
+        background: white;
+        color: black;
+    }
+
+    .overlay-button i {
+        font-size: 16px;
+    }
+</style>
+
+@code {
+    private string activeTab = "videos";
+    
+    private List<string> myVideos = new()
+    {
+        "01951626-46f9-7b82-801b-b6c0e28f535e"
+    };
+
+    private List<string> likedVideos = new()
+    {
+        "01951645-afa9-7c19-82d3-b803ee5b93ae",
+        //"01951659-47d8-7eff-9c8e-18d6f4cfa213"
+    };
+
+    private string GetThumbnailUrl(string videoId)
+    {
+        return $"https://cdn.gauntletai.io/videos/{videoId}/thumbnail.jpg";
+    }
+}

@@ -1,0 +1,295 @@
+@page "/video/{VideoId}"
+@using Microsoft.AspNetCore.Components.Authorization
+@layout EmptyLayout
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject HttpClient Http
+
+<PageTitle>Video - Gauntlet Exchange</PageTitle>
+
+<HeadContent>
+    <link href="https://cdn.jsdelivr.net/npm/video.js@8.21.0/dist/video-js.min.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/video.js@8.21.0/dist/video.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/videojs-contrib-quality-levels@4.0.0/dist/videojs-contrib-quality-levels.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/videojs-hls-quality-selector@2.0.0/dist/videojs-hls-quality-selector.min.js"></script>
+</HeadContent>
+
+<CascadingAuthenticationState>
+    <div class="app-container">
+        @if (isLoading)
+        {
+            <div class="loading-container">
+                <i class="bi bi-arrow-repeat spinning"></i>
+                <p>Loading video...</p>
+            </div>
+        }
+        else if (hasError)
+        {
+            <div class="error-container">
+                <i class="bi bi-exclamation-circle"></i>
+                <h3>Video Not Found</h3>
+                <p>Sorry, this video doesn't exist or has been removed.</p>
+                <button class="home-button" @onclick='() => Navigation.NavigateTo("/", true)'>
+                    <i class="bi bi-house-fill"></i>
+                    Return Home
+                </button>
+            </div>
+        }
+        else
+        {
+            <video-js @ref="videoElement" class="video-js" controls preload="auto">
+                <source src="@videoUrl" type="application/vnd.apple.mpegurl" />
+            </video-js>
+            
+            <div class="right-menu">
+                <AuthorizeView>
+                    <Authorized>
+                        <button class="menu-item" @onclick='() => Navigation.NavigateTo("/", true)'>
+                            <i class="bi bi-house-fill"></i>
+                            <span>Home</span>
+                        </button>
+                        <button class="menu-item" @onclick="HandleLike">
+                            <i class="bi bi-heart-fill"></i>
+                            <span>123K</span>
+                        </button>
+                        <button class="menu-item" @onclick="HandleComment">
+                            <i class="bi bi-chat-fill"></i>
+                            <span>456</span>
+                        </button>
+                        <button class="menu-item" @onclick="HandleShare">
+                            <i class="bi bi-share-fill"></i>
+                            <span>Share</span>
+                        </button>
+                        <button class="menu-item" @onclick='() => Navigation.NavigateTo("/profile", true)'>
+                            <i class="bi bi-person-circle"></i>
+                            <span>Profile</span>
+                        </button>
+                    </Authorized>
+                    <NotAuthorized>
+                        <button class="menu-item" @onclick='() => Navigation.NavigateTo("/", true)'>
+                            <i class="bi bi-house-fill"></i>
+                            <span>Home</span>
+                        </button>
+                        <button class="menu-item" @onclick='() => Navigation.NavigateTo("/authentication/login", true)'>
+                            <i class="bi bi-box-arrow-in-right"></i>
+                            <span>Login</span>
+                        </button>
+                    </NotAuthorized>
+                </AuthorizeView>
+            </div>
+        }
+    </div>
+</CascadingAuthenticationState>
+
+<style>
+    .app-container {
+        position: fixed;
+        inset: 0;
+        background: #000;
+    }
+
+    .video-js {
+        width: 100% !important;
+        height: 100% !important;
+        position: absolute !important;
+    }
+
+    .vjs-tech {
+        object-fit: cover;
+        width: 100% !important;
+        height: 100% !important;
+    }
+
+    .vjs-poster {
+        display: none !important;
+    }
+
+    .video-js .vjs-menu {
+        right: 0 !important;
+        left: auto !important;
+        overflow: visible !important;
+    }
+
+    .vjs-big-play-button {
+        z-index: 2;
+    }
+
+    .right-menu {
+        position: fixed;
+        right: 16px;
+        top: 50%;
+        transform: translateY(-50%);
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        z-index: 1000;
+        background: rgba(0, 0, 0, 0.5);
+        padding: 16px;
+        border-radius: 8px;
+    }
+
+    .menu-item {
+        background: transparent;
+        border: none;
+        color: white;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        cursor: pointer;
+        padding: 0;
+        transition: transform 0.2s;
+    }
+
+    .menu-item:hover {
+        transform: scale(1.1);
+    }
+
+    .menu-item i {
+        font-size: 28px;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    }
+
+    .menu-item span {
+        font-size: 12px;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    }
+
+    .loading-container, .error-container {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        color: white;
+        gap: 16px;
+    }
+
+    .loading-container i, .error-container i {
+        font-size: 48px;
+        margin-bottom: 8px;
+    }
+
+    .error-container h3 {
+        margin: 0;
+        font-size: 24px;
+    }
+
+    .error-container p {
+        margin: 0;
+        opacity: 0.7;
+    }
+
+    .home-button {
+        margin-top: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 24px;
+        background: #007bff;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 16px;
+        transition: background-color 0.2s;
+    }
+
+    .home-button:hover {
+        background: #0056b3;
+    }
+
+    @@keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+
+    .spinning {
+        animation: spin 1s linear infinite;
+    }
+</style>
+
+@code {
+    [Parameter]
+    public string VideoId { get; set; } = "";
+
+    private ElementReference videoElement;
+    private string videoUrl => $"https://cdn.gauntletai.io/videos/{VideoId}/master.m3u8";
+    private string thumbnailUrl => $"https://cdn.gauntletai.io/videos/{VideoId}/thumbnail.jpg";
+    private string description = "Check out this awesome video! #gauntlet #gaming";
+    private bool isLoading = true;
+    private bool hasError = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try 
+        {
+            // Check if the thumbnail exists to verify video availability
+            var response = await Http.GetAsync(thumbnailUrl);
+            if (!response.IsSuccessStatusCode)
+            {
+                hasError = true;
+            }
+        }
+        catch
+        {
+            hasError = true;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !hasError)
+        {
+            try
+            {
+                await Task.Delay(100); // Give scripts time to load
+
+                var player = await JS.InvokeAsync<IJSObjectReference>("eval", @"
+                    const element = document.querySelector('.video-js');
+                    const player = videojs(element, {
+                        controls: true,
+                        preload: 'auto',
+                        loadingSpinner: false,
+                        controlBar: {
+                            fullscreenToggle: false,
+                            pictureInPictureToggle: false
+                        }
+                    });
+                    player.hlsQualitySelector({ displayCurrentQuality: true });
+                    player;
+                ");
+
+                isLoading = false;
+                StateHasChanged();
+            }
+            catch
+            {
+                hasError = true;
+                isLoading = false;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private void HandleLike()
+    {
+        // Implement like functionality
+    }
+
+    private void HandleComment()
+    {
+        // Implement comment functionality
+    }
+
+    private void HandleShare()
+    {
+        // Implement share functionality
+    }
+} 

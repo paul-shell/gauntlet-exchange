@@ -1,0 +1,1449 @@
+@page "/analyze/{VideoId}"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Authorization
+@using System.Text
+@using System.Net.Http.Headers
+@using Azure.Storage.Blobs
+@using Azure.Storage.Blobs.Models
+@using Microsoft.CognitiveServices.Speech
+@using System.Text.Json.Serialization
+@using System.Text.Json
+@implements IDisposable
+@inject NavigationManager Navigation
+@inject IConfiguration Configuration
+@inject HttpClient Http
+@attribute [Authorize]
+
+<PageTitle>Analyze - Gauntlet Exchange</PageTitle>
+
+<div class="analyze-container">
+    <div class="video-preview">
+        <div class="thumbnail-container">
+            <img src="https://cdn.gauntletai.io/videos/@VideoId/thumbnail.jpg" alt="Video thumbnail" class="thumbnail" />
+            <div class="overlay-buttons">
+                <button class="overlay-button watch" @onclick='() => Navigation.NavigateTo($"/video/{VideoId}", true)'>
+                    <i class="bi bi-play-fill"></i>
+                    Watch
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (!IsAnalyzed && !isAnalyzing)
+    {
+        <div class="action-section">
+            <button class="action-button" @onclick="StartAnalysis">
+                <i class="bi bi-graph-up"></i>
+                Analyze video
+            </button>
+        </div>
+    }
+
+    @if (IsAnalyzed)
+    {
+    <div class="audio-section">
+        <audio controls class="audio-player">
+            <source src="https://cdn.gauntletai.io/videos/@VideoId/audio.wav" type="audio/wav" />
+            Your browser does not support the audio element.
+        </audio>
+    </div>
+
+    <div class="transcript-section">
+        <h3>Transcript</h3>
+        <div class="transcript-content">
+                @if (!string.IsNullOrWhiteSpace(Transcript))
+                {
+                    <pre>@Transcript</pre>
+                }
+                else
+                {
+            <em>Transcript will be generated using Azure services...</em>
+                }
+        </div>
+    </div>
+
+    <div class="analysis-section">
+        <div class="filler-words">
+            <div class="filler-header">
+                <div class="header-content">
+                    <h3>
+                        <i class="bi bi-chat-square-quote"></i>
+                        Filler Words
+                        <span class="tooltip-trigger" data-tooltip="Filler words are words or phrases used to fill silence when speaking. Reducing them can make your speech more impactful.">
+                            <i class="bi bi-info-circle"></i>
+                        </span>
+                    </h3>
+                    <div class="stats-summary">
+                        <span class="stat-item">
+                            <strong>@FillerWords.Values.Sum()</strong> filler words
+                        </span>
+                        <span class="stat-divider">•</span>
+                        <span class="stat-item">
+                            <strong>@TotalWordCount</strong> total words
+                        </span>
+                        <span class="stat-divider">•</span>
+                        <span class="stat-item">
+                            <strong>@($"{(FillerWords.Values.Sum() * 100.0 / Math.Max(1, TotalWordCount)):F1}%")</strong> filler ratio
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="filler-stats">
+                @if (FillerWords.Count > 0)
+                {
+                    <div class="category-list">
+                        @foreach (var category in FillerWordsByCategory.Where(c => c.Value.Count > 0).OrderByDescending(c => c.Value.Values.Sum()))
+                        {
+                            <div class="category-item animate-in">
+                                <div class="category-header">
+                                    <div class="category-title">
+                                        <span class="category-icon">
+                                            <i class="bi @GetCategoryIcon(category.Key)"></i>
+                                        </span>
+                                        <span class="category-name">@category.Key</span>
+                                        <span class="tooltip-trigger" data-tooltip="@GetCategoryDescription(category.Key)">
+                                            <i class="bi bi-info-circle"></i>
+                                        </span>
+                                    </div>
+                                    <span class="category-count">@category.Value.Values.Sum() total</span>
+                                </div>
+                                <div class="filler-list">
+                                    @foreach (var filler in category.Value.OrderByDescending(f => f.Value))
+                                    {
+                                        <div class="filler-item animate-in" data-count="@(filler.Value <= 5 ? filler.Value.ToString() : "many")"
+                                             style="animation-delay: @(category.Value.ToList().IndexOf(filler) * 0.05)s">
+                                            <span class="filler-word">@filler.Key</span>
+                                            <span class="filler-count">@filler.Value</span>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="no-fillers">
+                        <i class="bi bi-check-circle"></i>
+                        <em>No filler words detected in the transcript.</em>
+                </div>
+                }
+            </div>
+        </div>
+    </div>
+    }
+    else if (isAnalyzing)
+    {
+        <div class="analysis-loading">
+            <i class="bi bi-cpu-fill spin"></i>
+            <p>Analyzing your video...</p>
+            @if (!string.IsNullOrEmpty(transcriptionId))
+            {
+                <p>Processing: @transcriptionId</p>
+                @if (lastPollingCheck.HasValue)
+                {
+                    <p class="subtitle">Last checked: @lastPollingCheck.Value.ToString("HH:mm:ss")</p>
+                    @if (!string.IsNullOrEmpty(currentStatus))
+                    {
+                        <p class="subtitle">Status: @currentStatus</p>
+                    }
+                }
+            }
+            <p class="subtitle">This may take a few minutes.</p>
+        </div>
+    }
+</div>
+
+<style>
+    .analyze-container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 24px;
+    }
+
+    .video-preview {
+        margin-bottom: 24px;
+    }
+
+    .thumbnail-container {
+        position: relative;
+        width: 100%;
+    }
+
+    .overlay-buttons {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: rgba(0, 0, 0, 0.7);
+        opacity: 0;
+        transition: opacity 0.2s;
+    }
+
+    .thumbnail-container:hover .overlay-buttons {
+        opacity: 1;
+    }
+
+    .overlay-button {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: transform 0.2s;
+    }
+
+    .overlay-button:hover {
+        transform: scale(1.05);
+    }
+
+    .overlay-button.watch {
+        background: white;
+        color: black;
+    }
+
+    .overlay-button.analyze {
+        background: #6c757d;
+        color: white;
+        margin-left: 8px;
+    }
+
+    .overlay-button i {
+        font-size: 16px;
+    }
+
+    .thumbnail {
+        width: 100%;
+        max-height: 450px;
+        object-fit: contain;
+        border-radius: 8px;
+    }
+
+    .audio-section {
+        margin-bottom: 32px;
+    }
+
+    .audio-player {
+        width: 100%;
+        margin-top: 16px;
+    }
+
+    .transcript-section, .analysis-section {
+        background-color: #fafbff;
+        padding: 20px;
+        border-radius: 16px;
+        margin-bottom: 24px;
+        border: 1px solid #e5e9f5;
+    }
+
+    .transcript-content {
+        margin-top: 16px;
+        line-height: 1.6;
+    }
+
+    .transcript-content pre {
+        white-space: pre-wrap;       /* Since CSS 2.1 */
+        word-wrap: break-word;       /* Internet Explorer 5.5+ */
+        overflow-wrap: break-word;   /* Modern browsers */
+        padding: 12px;
+        background: #ffffff;
+        border-radius: 12px;
+        border: 1px solid #e5e9f5;
+        box-shadow: 0 1px 2px rgba(30, 41, 59, 0.05);
+        font-family: inherit;        /* Use the page's default font */
+        font-size: inherit;          /* Use the page's default font size */
+        max-height: 250px;           /* Reduced from 500px to 250px */
+        overflow-y: auto;            /* Add scrollbar if needed */
+    }
+
+    .filler-words {
+        margin-top: 16px;
+    }
+
+    .filler-stats {
+        margin-top: 12px;
+    }
+
+    .filler-count {
+        margin-top: 16px;
+        font-weight: 500;
+    }
+
+    h3 {
+        margin-bottom: 16px;
+        color: #333;
+    }
+
+    h4 {
+        color: #555;
+    }
+
+    @@keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+
+    .spin {
+        animation: spin 2s linear infinite;
+        display: inline-block;
+        filter: drop-shadow(0 0 2px rgba(0,0,0,0.2));
+    }
+
+    .analysis-loading {
+        text-align: center;
+        padding: 48px 0;
+    }
+
+    .analysis-loading i {
+        font-size: 64px;
+        color: #6c757d;
+        margin-bottom: 24px;
+        opacity: 0.8;
+    }
+
+    .analysis-loading p {
+        margin: 8px 0;
+        color: #333;
+    }
+
+    .analysis-loading .subtitle {
+        color: #6c757d;
+        font-size: 14px;
+    }
+
+    .overlay-button:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+    }
+
+    .action-section {
+        margin-bottom: 32px;
+        text-align: center;
+    }
+
+    .action-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 24px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: 500;
+        background: #6c757d;
+        color: white;
+        transition: background-color 0.2s;
+    }
+
+    .action-button:hover {
+        background: #5a6268;
+    }
+
+    .action-button:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+    }
+
+    .action-button i {
+        font-size: 18px;
+    }
+
+    .filler-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 16px;
+    }
+
+    .filler-item {
+        background: #f8faff;
+        padding: 4px 10px;
+        border-radius: 6px;
+        border: 1px solid #e5e9f5;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        transition: all 0.2s;
+        font-size: 0.9em;
+    }
+
+    .filler-word {
+        color: #2d3748;
+        font-weight: 500;
+    }
+
+    .filler-count {
+        color: #4b5563;
+        font-size: 0.85em;
+        font-weight: 600;
+    }
+
+    .filler-item[data-count="1"] {
+        background: #fefce8;
+        border-color: #fef9c3;
+    }
+
+    .filler-item[data-count="2"] {
+        background: #fef9c3;
+        border-color: #fde047;
+    }
+
+    .filler-item[data-count="3"] {
+        background: #fee2e2;
+        border-color: #fecaca;
+    }
+
+    .filler-item[data-count="4"] {
+        background: #fecaca;
+        border-color: #fca5a5;
+    }
+
+    .filler-item[data-count="5"] {
+        background: #fca5a5;
+        border-color: #f87171;
+    }
+
+    .filler-item[data-count="many"] {
+        background: linear-gradient(135deg, #dc2626, #b91c1c);
+        border: none;
+        color: white;
+    }
+
+    .filler-item[data-count="many"] .filler-word,
+    .filler-item[data-count="many"] .filler-count {
+        color: white;
+    }
+
+    .filler-item:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    .analysis-section {
+        background-color: #fafbff;
+        padding: 20px;
+        border-radius: 16px;
+        margin-bottom: 24px;
+        border: 1px solid #e5e9f5;
+    }
+
+    .analysis-section h3 {
+        color: #1a202c;
+        font-size: 1.5em;
+        margin-bottom: 16px;
+    }
+
+    .analysis-section h4 {
+        color: #2d3748;
+        font-size: 1.2em;
+        margin-bottom: 12px;
+    }
+
+    .filler-words {
+        margin-top: 16px;
+    }
+
+    .filler-stats {
+        margin-top: 12px;
+    }
+
+    .filler-header {
+        margin-bottom: 24px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid #e5e9f5;
+    }
+
+    .header-content {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .filler-header h3 {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0;
+        color: #1a202c;
+        font-size: 1.5em;
+    }
+
+    .stats-summary {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: #4b5563;
+        font-size: 0.95em;
+    }
+
+    .stat-item {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .stat-item strong {
+        color: #1a202c;
+        font-weight: 600;
+    }
+
+    .stat-divider {
+        color: #cbd5e1;
+        font-size: 0.8em;
+    }
+
+    .tooltip-trigger {
+        position: relative;
+        cursor: help;
+    }
+
+    .tooltip-trigger[data-tooltip]:hover::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: calc(100% + 10px);
+        background: #1e293b;
+        color: white;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: normal;
+        white-space: nowrap;
+        z-index: 1000;
+        box-shadow: 0 4px 6px rgba(30, 41, 59, 0.2);
+    }
+
+    .tooltip-trigger[data-tooltip]:hover::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: calc(100% + 4px);
+        border: 6px solid transparent;
+        border-top-color: #1e293b;
+    }
+
+    .total-summary {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 24px;
+    }
+
+    .progress-ring {
+        position: relative;
+        width: 160px;
+        height: 160px;
+    }
+
+    .progress-circle {
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: conic-gradient(#dc2626 calc(var(--progress) * 1%), #f3f4f6 0);
+        position: relative;
+    }
+
+    .progress-circle::before {
+        content: '';
+        position: absolute;
+        inset: 10px;
+        border-radius: 50%;
+        background: #fafbff;
+    }
+
+    .progress-number {
+        position: relative;
+        font-size: 32px;
+        font-weight: 600;
+        color: #1a202c;
+        line-height: 1;
+        margin-bottom: 4px;
+    }
+
+    .progress-label {
+        position: relative;
+        font-size: 14px;
+        color: #4b5563;
+        margin-bottom: 8px;
+    }
+
+    .progress-stats {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+    }
+
+    .progress-stats .stat {
+        font-size: 12px;
+        color: #4b5563;
+        white-space: nowrap;
+        padding: 2px 8px;
+        border-radius: 12px;
+    }
+
+    .category-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 12px;
+        margin-bottom: 16px;
+    }
+
+    .category-item {
+        background: #ffffff;
+        border-radius: 8px;
+        padding: 12px;
+        box-shadow: 0 1px 3px rgba(30, 41, 59, 0.1);
+        border: 1px solid #e5e9f5;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .category-item:hover {
+        box-shadow: 0 4px 6px rgba(30, 41, 59, 0.1);
+        transform: translateY(-2px);
+    }
+
+    .category-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #e5e9f5;
+    }
+
+    .category-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .category-name {
+        font-weight: 600;
+        color: #1a202c;
+    }
+
+    .category-count {
+        font-size: 0.9em;
+        color: #4b5563;
+        background: #f3f6ff;
+        padding: 2px 8px;
+        border-radius: 12px;
+    }
+
+    .filler-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+
+    .category-icon {
+        width: 20px;
+        height: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        background: #f3f6ff;
+        color: #4b5563;
+    }
+
+    .category-icon i {
+        font-size: 0.9em;
+    }
+
+    .no-fillers {
+        text-align: center;
+        padding: 32px;
+        background: #f3f6ff;
+        border-radius: 12px;
+        color: #4b5563;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .no-fillers i {
+        font-size: 32px;
+        color: #22c55e;
+    }
+
+    @@keyframes fadeSlideIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .animate-in {
+        animation: fadeSlideIn 0.3s ease-out forwards;
+        opacity: 0;
+    }
+
+    .category-item.animate-in {
+        animation-delay: calc(var(--index, 0) * 0.1s);
+    }
+</style>
+
+@code {
+    [Parameter]
+    public string VideoId { get; set; } = "";
+
+    private bool IsAnalyzed { get; set; } = false;
+    private bool isAnalyzing { get; set; } = false;
+    private string Transcript { get; set; } = "";
+    private CancellationTokenSource? _pollCts;
+    private string? transcriptionId;
+    private DateTime? lastPollingCheck;
+    private string? currentStatus;
+    private Dictionary<string, int> FillerWords { get; set; } = new();
+    private Dictionary<string, Dictionary<string, int>> FillerWordsByCategory { get; set; } = new();
+    private int TotalWordCount { get; set; } = 0;
+
+    private static readonly Dictionary<string, HashSet<string>> FillerWordCategories = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Basic Fillers"] = new(StringComparer.OrdinalIgnoreCase) 
+        { 
+            "um", "uh", "uhm", "er", "erm", "ah", "hmm", "huh", "eh", "mhm", "mm"
+        },
+        ["Verbal Fillers"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "like", "you know", "sort of", "kind of", "basically", "literally",
+            "actually", "honestly", "frankly", "obviously", "clearly",
+            "pretty much", "more or less", "somewhat", "relatively", "fairly"
+        },
+        ["Hesitation"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "well", "right", "okay", "so", "just", "yeah", "yes", "no",
+            "i guess", "i suppose", "i think", "i believe", "i mean"
+        },
+        ["Generalization"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "stuff", "things", "whatever", "and stuff", "and things",
+            "something like that", "or something", "or whatever", "etcetera",
+            "and so on", "and whatnot", "and everything"
+        },
+        ["Thinking"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "let me see", "let me think", "i mean", "you see", "look",
+            "let's see", "how should i say this", "what i'm trying to say",
+            "if you will", "if you know what i mean"
+        },
+        ["Continuation"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "anyway", "anyhow", "at any rate", "in any case",
+            "moving on", "long story short", "that being said",
+            "having said that", "with that in mind"
+        },
+        ["Uncertainty"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "maybe", "perhaps", "probably", "supposedly", "supposedly like",
+            "i guess", "sort of like", "kind of like", "more or less",
+            "not really sure", "could be"
+        },
+        ["Time"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "now", "then", "at this point", "at this time",
+            "you know what", "at the end of the day", "when all is said and done",
+            "eventually", "ultimately"
+        },
+        ["Emphasis"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "you know what i mean", "if you think about it",
+            "believe me", "trust me", "i'm telling you",
+            "to be honest", "to tell you the truth", "as a matter of fact"
+        },
+        ["Minimizers"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "just", "only", "simply", "really", "quite",
+            "pretty", "fairly", "basically", "generally speaking",
+            "for the most part"
+        }
+    };
+
+    // Create a flat list of all filler words for quick lookup
+    private static readonly HashSet<string> FillerWordList = new(
+        FillerWordCategories.SelectMany(c => c.Value),
+        StringComparer.OrdinalIgnoreCase
+    );
+
+    private string SpeechKey => Configuration["AzureSpeechService:Key"] ?? throw new InvalidOperationException("Azure Speech Service key not configured");
+    private string BlobStorageConnection => Configuration["BlobStorage:ConnectionString"] ?? throw new InvalidOperationException("Blob storage connection string not configured");
+
+    protected override async Task OnInitializedAsync()
+    {
+        try 
+        {
+            Console.WriteLine("[INIT] Starting page initialization");
+            
+            // Check for a completed transcript first
+            Console.WriteLine("[INIT] Checking for completed transcript.txt");
+            var content = await GetTranscriptFromBlob();
+            Console.WriteLine($"[INIT] transcript.txt content: {(content == null ? "null" : $"length: {content?.Length}")}{(content != null ? $", starts with: {content.Substring(0, Math.Min(50, content.Length))}..." : "")}");
+            
+            // If we have actual transcript content (not a URL or ID), show it
+            if (!string.IsNullOrEmpty(content) && !content.StartsWith("http") && !Guid.TryParse(content, out _))
+            {
+                Console.WriteLine($"[INIT] Found valid completed transcript in blob");
+                Transcript = content;
+                IsAnalyzed = true;
+                // Analyze filler words for the loaded transcript
+                AnalyzeFillerWords(content);
+                // Clean up any temp files since we have a valid transcript
+                await DeleteTempTranscript();
+            }
+            else
+            {
+                // Check for an in-progress transcription
+                Console.WriteLine("[INIT] Checking for temp_transcript.txt");
+                var tempContent = await GetTranscriptFromBlob("temp_transcript.txt");
+                Console.WriteLine($"[INIT] temp_transcript.txt content: {(tempContent == null ? "null" : tempContent)}");
+                
+                if (!string.IsNullOrEmpty(tempContent) && Guid.TryParse(tempContent, out _))
+                {
+                    // Verify the transcription is still valid
+                    Http.DefaultRequestHeaders.Clear();
+                    Http.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", SpeechKey);
+                    
+                    Console.WriteLine($"[INIT] Verifying transcription {tempContent} is still valid");
+                    var response = await Http.GetAsync($"https://southcentralus.api.cognitive.microsoft.com/speechtotext/v3.1/transcriptions/{tempContent}");
+                    
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        Console.WriteLine("[INIT] Transcription no longer valid, cleaning up temp file");
+                        await DeleteTempTranscript();
+                        // Reset to initial state
+                        Transcript = "";
+                        IsAnalyzed = false;
+                        isAnalyzing = false;
+                        transcriptionId = null;
+                    }
+                    else 
+                    {
+                        Console.WriteLine("[INIT] Found valid transcription ID in temp file, resuming transcription");
+                        // Resume the transcription process
+                        transcriptionId = tempContent;
+                        isAnalyzing = true;
+                        StartPolling();
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("[INIT] No transcript or in-progress job found");
+                    // No transcript and no in-progress job
+                    Transcript = "";
+                    IsAnalyzed = false;
+                    isAnalyzing = false;
+                    transcriptionId = null;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[INIT] Error in initialization: {ex.Message}");
+            Console.WriteLine($"[INIT] Stack trace: {ex.StackTrace}");
+            // Ensure we're in a clean state
+            Transcript = "";
+            IsAnalyzed = false;
+            isAnalyzing = false;
+            transcriptionId = null;
+        }
+    }
+
+    private async Task DeleteTempTranscript()
+    {
+        try
+        {
+            var blobServiceClient = new BlobServiceClient(BlobStorageConnection);
+            var containerClient = blobServiceClient.GetBlobContainerClient("videos");
+            var tempBlobClient = containerClient.GetBlobClient($"{VideoId}/temp_transcript.txt");
+            var deleteResponse = await tempBlobClient.DeleteIfExistsAsync();
+            Console.WriteLine($"[CLEANUP] Deleted temp transcript file: {deleteResponse.Value}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Failed to delete temp transcript: {ex.Message}");
+            // Don't throw - this is cleanup code
+        }
+    }
+
+    private async Task<string?> GetTranscriptFromBlob(string fileName = "transcript.txt")
+    {
+        try
+        {
+            var blobServiceClient = new BlobServiceClient(BlobStorageConnection);
+            var containerClient = blobServiceClient.GetBlobContainerClient("videos");
+            var blobPath = $"{VideoId}/{fileName}";
+            var blobClient = containerClient.GetBlobClient(blobPath);
+            
+            if (!await blobClient.ExistsAsync())
+            {
+                return null;
+            }
+
+            // Download to stream and read content
+            using var stream = new MemoryStream();
+            await blobClient.DownloadToAsync(stream);
+            stream.Position = 0;
+            using var reader = new StreamReader(stream);
+            return await reader.ReadToEndAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error retrieving {fileName}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task StoreTranscript(string transcript, bool isTemporary = false)
+    {
+        if (string.IsNullOrWhiteSpace(transcript)) return;
+        
+        // For temporary storage, we allow GUIDs but not URLs
+        if (!isTemporary)
+        {
+            if (transcript.StartsWith("http")) return;
+            if (Guid.TryParse(transcript, out _)) return;
+        }
+
+        try
+        {
+            Console.WriteLine($"Storing {(isTemporary ? "temporary " : "")}transcript, length: {transcript.Length}");
+            
+            var blobServiceClient = new BlobServiceClient(BlobStorageConnection);
+            var containerClient = blobServiceClient.GetBlobContainerClient("videos");
+            
+            // Create container if it doesn't exist
+            await containerClient.CreateIfNotExistsAsync();
+            
+            // Get blob path and ensure it matches VideoProcessor pattern
+            var blobPath = $"{VideoId}/{(isTemporary ? "temp_transcript.txt" : "transcript.txt")}";
+            Console.WriteLine($"Blob path: {blobPath}");
+            var blobClient = containerClient.GetBlobClient(blobPath);
+
+            // Upload directly from memory
+            var bytes = Encoding.UTF8.GetBytes(transcript);
+            using var memoryStream = new MemoryStream(bytes);
+            
+            Console.WriteLine($"Uploading {bytes.Length} bytes to {blobPath}");
+            var response = await blobClient.UploadAsync(memoryStream, new BlobUploadOptions
+            {
+                HttpHeaders = new BlobHttpHeaders
+                {
+                    ContentType = "text/plain",
+                    CacheControl = "public, max-age=31536000"
+                }
+            });
+            
+            Console.WriteLine($"Upload complete. ETag: {response.Value.ETag}");
+            
+            // Verify the upload
+            var exists = await blobClient.ExistsAsync();
+            if (!exists.Value)
+            {
+                throw new Exception($"Blob {blobPath} was not found after upload");
+            }
+            Console.WriteLine($"Verified blob {blobPath} exists");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error storing {(isTemporary ? "temporary " : "")}transcript: {ex.Message}");
+            Console.WriteLine($"Stack trace: {ex.StackTrace}");
+            throw;
+        }
+    }
+
+    private void StartPolling()
+    {
+        _pollCts?.Cancel();
+        _pollCts = new CancellationTokenSource();
+        
+        // Start a background task for polling
+        _ = Task.Run(async () => 
+        {
+            try
+            {
+                while (!_pollCts.Token.IsCancellationRequested)
+                {
+                    try 
+                    {
+                        await PollTranscriptionStatus();
+                        await Task.Delay(10000, _pollCts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[ERROR] Error in poll iteration: {ex.Message}");
+                        Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
+                        // Wait before retrying
+                        await Task.Delay(5000, _pollCts.Token);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Normal cancellation, ignore
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Fatal error in poll loop: {ex.Message}");
+                Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
+                // Ensure we clean up state
+                await InvokeAsync(() => 
+                {
+                    isAnalyzing = false;
+                    transcriptionId = null;
+                    currentStatus = null;
+                    StateHasChanged();
+                });
+            }
+        }, _pollCts.Token);
+    }
+
+    private async Task PollTranscriptionStatus()
+    {
+        if (string.IsNullOrEmpty(transcriptionId)) return;
+
+        try
+        {
+            await InvokeAsync(async () => 
+            {
+                lastPollingCheck = DateTime.Now;
+                await Task.Yield();
+                StateHasChanged();
+            });
+
+            Http.DefaultRequestHeaders.Clear();
+            Http.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", SpeechKey);
+
+            var url = $"https://southcentralus.api.cognitive.microsoft.com/speechtotext/v3.1/transcriptions/{transcriptionId}";
+            Console.WriteLine($"[POLL] Making request to: {url}");
+            
+            using var response = await Http.GetAsync(url);
+            Console.WriteLine($"[POLL] Got response with status: {response.StatusCode}");
+            
+            var responseContent = await response.Content.ReadAsStringAsync();
+            Console.WriteLine($"[POLL] !!!! RESPONSE CONTENT START !!!!");
+            Console.WriteLine(responseContent);
+            Console.WriteLine($"[POLL] !!!! RESPONSE CONTENT END !!!!");
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new Exception($"Failed to check transcription status: {response.StatusCode} - {responseContent}");
+            }
+
+            try 
+            {
+                var result = await response.Content.ReadFromJsonAsync<TranscriptionStatus>();
+                Console.WriteLine($"[POLL] Deserialized response. Result is null? {result == null}");
+                if (result == null) throw new Exception("Failed to parse transcription status");
+                
+                Console.WriteLine($"[POLL] Status: {result.Status}");
+                Console.WriteLine($"[POLL] Links null? {result.Links == null}");
+                Console.WriteLine($"[POLL] Files URL: {result.Links?.Files}");
+                
+                await InvokeAsync(async () => 
+                {
+                    currentStatus = result.Status;
+                    await Task.Yield();
+                    StateHasChanged();
+                });
+                
+                if (result.Status?.ToLower() == "succeeded")
+                {
+                    Console.WriteLine("[POLL] Status is succeeded!");
+                    if (result.Links?.Files == null)
+                    {
+                        Console.WriteLine("[POLL] But Files URL is null!");
+                        return;
+                    }
+
+                    // Get the files list
+                    Console.WriteLine($"[FILES] Fetching files from: {result.Links.Files}");
+                    using var filesResponse = await Http.GetAsync(result.Links.Files);
+                    var filesContent = await filesResponse.Content.ReadAsStringAsync();
+                    Console.WriteLine($"[FILES] Response: {filesContent}");
+
+                    if (!filesResponse.IsSuccessStatusCode)
+                    {
+                        throw new Exception($"Failed to get files: {filesResponse.StatusCode} - {filesContent}");
+                    }
+
+                    var files = await filesResponse.Content.ReadFromJsonAsync<TranscriptionFiles>();
+                    if (files?.Values == null || files.Values.Length == 0)
+                    {
+                        Console.WriteLine("[FILES] No files found!");
+                        return;
+                    }
+
+                    // Find the transcription file
+                    var transcriptFile = files.Values.FirstOrDefault(f => f.Kind == "Transcription");
+                    if (transcriptFile?.Links == null || !transcriptFile.Links.ContainsKey("contentUrl"))
+                    {
+                        Console.WriteLine("[FILES] No transcription file found!");
+                        return;
+                    }
+
+                    var transcriptUrl = transcriptFile.Links["contentUrl"];
+                    Console.WriteLine($"[TRANSCRIPT] Fetching from {transcriptUrl}");
+                    
+                    try 
+                    {
+                        using var transcriptResponse = await Http.GetAsync(transcriptUrl);
+                        var transcriptContent = await transcriptResponse.Content.ReadAsStringAsync();
+                        Console.WriteLine($"[TRANSCRIPT] Response status: {transcriptResponse.StatusCode}");
+                        Console.WriteLine($"[TRANSCRIPT] Raw response: {transcriptContent}");
+                        
+                        if (!transcriptResponse.IsSuccessStatusCode)
+                        {
+                            throw new Exception($"Failed to get transcript: {transcriptResponse.StatusCode} - {transcriptContent}");
+                        }
+
+                        // Use JsonDocument for more flexible parsing
+                        using var document = JsonDocument.Parse(transcriptContent);
+                        var root = document.RootElement;
+                        
+                        // Get all recognized phrases
+                        if (!root.TryGetProperty("recognizedPhrases", out var phrasesElement))
+                        {
+                            throw new Exception("Could not find recognizedPhrases in response");
+                        }
+
+                        var phrases = new List<string>();
+                        FillerWords.Clear();
+                        FillerWordsByCategory.Clear();
+                        
+                        foreach (var phrase in phrasesElement.EnumerateArray())
+                        {
+                            if (phrase.TryGetProperty("nBest", out var nBestElement) && nBestElement.GetArrayLength() > 0)
+                            {
+                                var nBest = nBestElement[0];
+                                if (nBest.TryGetProperty("lexical", out var lexicalElement))
+                                {
+                                    var text = lexicalElement.GetString();
+                                    if (!string.IsNullOrEmpty(text))
+                                    {
+                                        phrases.Add(text);
+                                    }
+                                }
+                            }
+                        }
+
+                        if (phrases.Count == 0)
+                        {
+                            throw new Exception("No valid phrases found in transcript");
+                        }
+
+                        var finalTranscript = string.Join(" ", phrases).Trim();
+                        Console.WriteLine($"[TRANSCRIPT] Final length: {finalTranscript.Length}");
+                        Console.WriteLine($"[TRANSCRIPT] First 100 chars: {(finalTranscript.Length > 100 ? finalTranscript.Substring(0, 100) : finalTranscript)}...");
+
+                        // Analyze filler words
+                        AnalyzeFillerWords(finalTranscript);
+                        Console.WriteLine($"[ANALYSIS] Found {FillerWords.Count} unique filler words");
+                        foreach (var filler in FillerWords.OrderByDescending(f => f.Value))
+                        {
+                            Console.WriteLine($"[ANALYSIS] {filler.Key}: {filler.Value} occurrences");
+                        }
+
+                        // Store the final transcript
+                        Console.WriteLine("[BLOB] Starting transcript storage");
+                        await StoreTranscript(finalTranscript);
+                        Console.WriteLine("[BLOB] Stored final transcript in blob storage");
+
+                        // Verify the transcript was stored
+                        var storedTranscript = await GetTranscriptFromBlob();
+                        if (string.IsNullOrEmpty(storedTranscript))
+                        {
+                            throw new Exception("Failed to verify transcript storage - transcript.txt not found after upload");
+                        }
+                        Console.WriteLine("[BLOB] Verified transcript.txt exists");
+
+                        // Clean up the temporary file
+                        await DeleteTempTranscript();
+                        Console.WriteLine("[BLOB] Cleaned up temporary file");
+
+                        // Update UI state
+                        await InvokeAsync(async () => 
+                        {
+                            isAnalyzing = false;
+                            IsAnalyzed = true;
+                            Transcript = finalTranscript;
+                            transcriptionId = null;
+                            currentStatus = null;
+                            await Task.Yield();
+                            StateHasChanged();
+                        });
+
+                        // Stop polling
+                        _pollCts?.Cancel();
+
+                        Console.WriteLine("[COMPLETE] Transcription process complete");
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[ERROR] Failed to process transcript: {ex.Message}");
+                        Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
+                        throw; // Let the poll loop handle retries
+                    }
+                }
+                else if (result.Status?.ToLower() == "failed")
+                {
+                    var errorMessage = result.Error?.Message ?? "Unknown error";
+                    Console.WriteLine($"[ERROR] Transcription failed: {errorMessage}");
+                    throw new Exception($"Transcription failed: {errorMessage}");
+                }
+                else
+                {
+                    Console.WriteLine($"[POLL] Status is {result.Status}, continuing to poll");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[POLL] Error parsing response: {ex.Message}");
+                Console.WriteLine($"[POLL] Response was: {responseContent}");
+                throw;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Error during polling: {ex.Message}");
+            Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
+            throw; // Let the poll loop handle retries
+        }
+    }
+
+    private void AnalyzeFillerWords(string transcript)
+    {
+        FillerWords.Clear();
+        FillerWordsByCategory.Clear();
+        if (string.IsNullOrWhiteSpace(transcript)) return;
+
+        // Initialize categories
+        foreach (var category in FillerWordCategories.Keys)
+        {
+            FillerWordsByCategory[category] = new Dictionary<string, int>();
+        }
+
+        // Split into words and normalize
+        var words = transcript.Split(new[] { ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+        TotalWordCount = words.Length;
+        
+        // Count each filler word
+        foreach (var word in words)
+        {
+            var normalizedWord = word.Trim().ToLowerInvariant();
+            
+            // Find which category this word belongs to
+            foreach (var category in FillerWordCategories)
+            {
+                if (category.Value.Contains(normalizedWord))
+                {
+                    if (!FillerWordsByCategory[category.Key].ContainsKey(normalizedWord))
+                    {
+                        FillerWordsByCategory[category.Key][normalizedWord] = 0;
+                    }
+                    FillerWordsByCategory[category.Key][normalizedWord]++;
+                    
+                    // Also update the flat list for total counts
+                    if (!FillerWords.ContainsKey(normalizedWord))
+                    {
+                        FillerWords[normalizedWord] = 0;
+                    }
+                    FillerWords[normalizedWord]++;
+                }
+            }
+
+            // Check for multi-word fillers
+            if (word.Contains(' '))
+            {
+                foreach (var category in FillerWordCategories)
+                {
+                    if (category.Value.Contains(word))
+                    {
+                        if (!FillerWordsByCategory[category.Key].ContainsKey(word))
+                        {
+                            FillerWordsByCategory[category.Key][word] = 0;
+                        }
+                        FillerWordsByCategory[category.Key][word]++;
+                        
+                        if (!FillerWords.ContainsKey(word))
+                        {
+                            FillerWords[word] = 0;
+                        }
+                        FillerWords[word]++;
+                    }
+                }
+            }
+        }
+    }
+
+    private class TranscriptionStatus
+    {
+        public string? Status { get; set; }
+        public Links? Links { get; set; }
+        public ErrorDetails? Error { get; set; }
+    }
+
+    private class Links
+    {
+        public string? Files { get; set; }
+    }
+
+    private class TranscriptionFiles
+    {
+        public TranscriptionFile[]? Values { get; set; }
+    }
+
+    private class TranscriptionFile
+    {
+        public string? Kind { get; set; }
+        public Dictionary<string, string>? Links { get; set; }
+    }
+
+    private class ErrorDetails
+    {
+        public string? Message { get; set; }
+    }
+
+    private async Task StartAnalysis()
+    {
+        try 
+        {
+            Console.WriteLine("[START] Beginning transcription analysis");
+            isAnalyzing = true;
+            await InvokeAsync(StateHasChanged);
+            
+            string audioBlobUrl = $"https://cdn.gauntletai.io/videos/{VideoId}/audio.wav";
+            Console.WriteLine($"[START] Audio URL: {audioBlobUrl}");
+
+            Http.DefaultRequestHeaders.Clear();
+            Http.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", SpeechKey);
+
+            // First verify the audio file exists and is accessible
+            Console.WriteLine("[START] Verifying audio file accessibility");
+            var audioResponse = await Http.GetAsync(audioBlobUrl);
+            if (!audioResponse.IsSuccessStatusCode)
+            {
+                throw new Exception($"Audio file not accessible: {audioResponse.StatusCode}");
+            }
+            Console.WriteLine("[START] Audio file is accessible");
+
+            var request = new
+            {
+                contentUrls = new[] { audioBlobUrl },
+                properties = new
+                {
+                    diarizationEnabled = false,
+                    wordLevelTimestampsEnabled = true,
+                    punctuationMode = "DictatedAndAutomatic",
+                    profanityFilterMode = "None",
+                    timeToLive = "PT4H" // 4 hour time to live
+                },
+                locale = "en-US",
+                displayName = $"Transcription-{VideoId}",
+                description = "Video audio transcription"
+            };
+
+            Console.WriteLine("[START] Sending transcription request to Azure");
+            var response = await Http.PostAsJsonAsync(
+                "https://southcentralus.api.cognitive.microsoft.com/speechtotext/v3.1/transcriptions",
+                request);
+
+            var responseContent = await response.Content.ReadAsStringAsync();
+            Console.WriteLine($"[START] Azure response content: {responseContent}");
+            Console.WriteLine($"[START] Azure response headers: {string.Join(", ", response.Headers.Select(h => $"{h.Key}: {string.Join(";", h.Value)}"))}");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new Exception($"Failed to start transcription: {response.StatusCode} - {responseContent}");
+            }
+
+            var location = response.Headers.Location?.ToString();
+            Console.WriteLine($"[START] Location header: {location}");
+            
+            if (string.IsNullOrEmpty(location))
+            {
+                throw new Exception("No transcription location returned");
+            }
+
+            transcriptionId = location.Split('/').Last();
+            Console.WriteLine($"[START] Extracted transcription ID: {transcriptionId}");
+            
+            // Store the transcription ID as a temporary file
+            Console.WriteLine("[START] Storing transcription ID in temp file");
+            await StoreTranscript(transcriptionId, isTemporary: true);
+            Console.WriteLine("[START] Stored transcription ID, starting polling");
+            
+            // Start polling
+            StartPolling();
+            Console.WriteLine("[START] Polling started");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Error during analysis start: {ex.Message}");
+            Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
+            isAnalyzing = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string GetCategoryIcon(string category) => category switch
+    {
+        "Basic Fillers" => "bi-mic",
+        "Verbal Fillers" => "bi-chat-text",
+        "Hesitation" => "bi-pause",
+        "Generalization" => "bi-arrows-expand",
+        "Thinking" => "bi-lightbulb",
+        "Continuation" => "bi-arrow-right",
+        "Uncertainty" => "bi-question",
+        "Time" => "bi-clock",
+        "Emphasis" => "bi-exclamation",
+        "Minimizers" => "bi-arrow-down-short",
+        _ => "bi-chat"
+    };
+
+    private string GetCategoryDescription(string category) => category switch
+    {
+        "Basic Fillers" => "Simple sounds used to fill silence",
+        "Verbal Fillers" => "Common phrases used while thinking",
+        "Hesitation" => "Words indicating pause or uncertainty",
+        "Generalization" => "Non-specific or vague terms",
+        "Thinking" => "Phrases used while gathering thoughts",
+        "Continuation" => "Words used to transition or continue",
+        "Uncertainty" => "Words expressing doubt or possibility",
+        "Time" => "Temporal references and transitions",
+        "Emphasis" => "Phrases used to strengthen or validate a point",
+        "Minimizers" => "Words that downplay or reduce the impact of statements",
+        _ => ""
+    };
+
+    public void Dispose()
+    {
+        _pollCts?.Cancel();
+        _pollCts?.Dispose();
+    }
+}
